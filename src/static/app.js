@@ -299,6 +299,24 @@ function scheduleHistory() {
   histTimer = setInterval(loadHistory, HIST_MS[win] || 15000);
 }
 
+const BANDS_KEY = "strata-bands";
+let showBands = true;
+function initBands() {
+  const btn = $("bands");
+  showBands = localStorage.getItem(BANDS_KEY) !== "off";
+  const draw = () => {
+    btn.classList.toggle("on", showBands);
+    btn.setAttribute("aria-pressed", String(showBands));
+    Object.values(plots).forEach((p) => { p.o.bands = showBands; p.draw(); });
+  };
+  draw();
+  btn.addEventListener("click", () => {
+    showBands = !showBands;
+    localStorage.setItem(BANDS_KEY, showBands ? "on" : "off");
+    draw();
+  });
+}
+
 function initPlots() {
   plots.toks = new Plot("p-toks", {
     color: "#4fd1c5", unit: "tok/s",
@@ -507,6 +525,7 @@ function initControls() {
 initTheme();
 initPlots();
 initControls();
+initBands();
 loadState();
 loadHistory();
 setInterval(loadState, 1000);

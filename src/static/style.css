@@ -263,6 +263,22 @@ main { padding: 14px 16px 4px; max-width: 1500px; margin: 0 auto; }
 #theme[aria-pressed="true"] { background: var(--range-on-bg); border-color: var(--range-on-border); }
 
 .legend { display: flex; gap: 12px; flex-wrap: wrap; }
+
+#bands {
+  background: var(--panel2);
+  color: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 13px;
+  font: 12px ui-monospace, Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+#bands:hover { color: var(--text); }
+#bands.on {
+  background: var(--range-on-bg);
+  color: var(--range-on-text);
+  border-color: var(--range-on-border);
+}
 .legend span { font-size: 11px; color: var(--dim); }
 .legend i {
   display: inline-block; width: 10px; height: 10px;
