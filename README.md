@@ -45,6 +45,10 @@ Logs: `journalctl -u strata-monitor -f`
 | `stale_after_s`    | `30`                        | engine marked stale if no log line for this long     |
 | `db`               | `/var/lib/strata-monitor/monitor.db` | SQLite database                           |
 
+> **Don't set `bind` to `0.0.0.0`.** The monitor serves plain HTTP with no auth;
+> `0.0.0.0` exposes port 8090 to the whole network. Keep `127.0.0.1` and let the
+> nginx proxy be the only network-facing entry point (see below).
+
 ## HTTPS via nginx
 
 The monitor is plain HTTP bound to `127.0.0.1`, so it is only reachable through
