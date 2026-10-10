@@ -17,7 +17,8 @@ HOST_RE = re.compile(
     r"^(?P<host>\S+)\s+(?P<prog>[^\[\s]+)(?:\[(?P<pid>\d+)\])?:\s?(?P<msg>.*)$")
 
 PROMPT_RE = re.compile(
-    r"^reading the prompt:\s+(?P<read>[\d,]+)\s+of\s+(?P<total>[\d,]+) tokens")
+    r"^reading the prompt:\s+(?P<read>[\d,]+)\s+of\s+(?P<total>[\d,]+) tokens"
+    r"(?:,\s+(?P<sec>\d+)\s+s so far)?")
 GEN_RE = re.compile(
     r"^(?P<stage>thinking|answering):\s+(?P<n>[\d,]+) of max (?P<max>[\d,]+) tokens,"
     r" (?P<toks>[\d.]+) tok/s, (?P<sec>\d+) s")
@@ -159,7 +160,8 @@ def parse_line(line, now_ts=None, unit="strata.service"):
     m = PROMPT_RE.match(msg)
     if m:
         return dict(base, kind="prefill", read=_num(m.group("read")),
-                    total=_num(m.group("total")))
+                    total=_num(m.group("total")),
+                    sec=int(m.group("sec")) if m.group("sec") else None)
 
     m = GEN_RE.match(msg)
     if m:

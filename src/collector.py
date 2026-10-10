@@ -105,7 +105,8 @@ class EventPump:
             self.state.update(
                 stage="prefill", stage_since=ev["ts"], tool=None,
                 prompt=ev["total"], context=ev["read"], gen=0,
-                last_line_ts=ev["ts"], started_ts=ev["ts"], elapsed=0,
+                last_line_ts=ev["ts"], started_ts=ev["ts"],
+                elapsed=ev.get("sec") or 0,
                 tok_s=0.0, engine="running")
             self._add(ev["ts"], "prefill", None, 0, ev["total"], ev["read"])
         elif k == "gen":

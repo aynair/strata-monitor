@@ -394,7 +394,9 @@ function renderState(s) {
   // speed
   $("toks").textContent = fmt1(s.tok_s);
   let sp = "idle";
-  if (ACTIVE.has(s.stage)) {
+  if (s.stage === "prefill") {
+    sp = `reading prompt · ${dur(s.elapsed)}`;
+  } else if (ACTIVE.has(s.stage)) {
     sp = `gen ${fmtInt(s.gen)} tok · ${dur(s.elapsed)}`;
     if (s.budget) sp += ` · budget ${fmtInt(s.budget)}`;
   } else if (s.last_request && s.last_request.tok_s != null && s.stage === "idle") {
@@ -418,7 +420,10 @@ function renderState(s) {
     ? `${fmtInt(s.context)} / ${fmtInt(ctxWin)} tok` : "";
   $("ctx-bar").style.width = (pct ? Math.min(100, pct) : 0) + "%";
   let cs = "no request yet";
-  if (s.context != null) {
+  if (s.stage === "prefill" && s.prompt) {
+    cs = `reading ${fmtInt(s.context)} of ${fmtInt(s.prompt)} prompt tokens`;
+    if (s.elapsed) cs += ` · ${dur(s.elapsed)}`;
+  } else if (s.context != null) {
     cs = `prompt ${fmtInt(s.prompt)} · generated ${fmtInt(s.gen)}`;
     cs += ACTIVE.has(s.stage) ? " · request running" : " · last request";
   }
