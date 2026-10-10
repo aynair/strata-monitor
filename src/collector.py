@@ -99,11 +99,17 @@ class EventPump:
             rows, self._pending = self._pending, []
         return rows
 
+    def _since(self, new_stage, ts):
+        """stage_since advances only on a real stage change."""
+        return ts if new_stage != self.state.d.get("stage") \
+            else self.state.d.get("stage_since")
+
     def handle(self, ev):
         k = ev.get("kind")
         if k == "prefill":
             self.state.update(
-                stage="prefill", stage_since=ev["ts"], tool=None,
+                stage="prefill", stage_since=self._since("prefill", ev["ts"]),
+                tool=None,
                 prompt=ev["total"], context=ev["read"], gen=0,
                 last_line_ts=ev["ts"], started_ts=ev["ts"],
                 elapsed=ev.get("sec") or 0,
@@ -114,8 +120,9 @@ class EventPump:
             # The engine's tok/s on the very first token of a turn (n == 1) is a
             # division artifact of startup latency, not a real rate — ignore it.
             reliable = ev["n"] > 1
+            since = self._since(ev["stage"], ev["ts"])
             updates = dict(
-                stage=ev["stage"], stage_since=ev["ts"], tool=ev.get("tool"),
+                stage=ev["stage"], stage_since=since, tool=ev.get("tool"),
                 gen=ev["n"], budget=ev["max"],
                 context=prompt + ev["n"], elapsed=ev["sec"],
                 last_line_ts=ev["ts"], engine="running")
@@ -129,7 +136,8 @@ class EventPump:
         elif k == "tool_complete":
             prompt = self.state.d.get("prompt") or 0
             self.state.update(
-                stage="idle", stage_since=ev["ts"], tool=None, gen=ev["n"],
+                stage="idle", stage_since=self._since("idle", ev["ts"]),
+                tool=None, gen=ev["n"],
                 context=prompt + ev["n"], tok_s=0.0, elapsed=ev["sec"],
                 last_line_ts=ev["ts"], engine="running")
             self._add(ev["ts"], "idle", 0.0, ev["n"], prompt or None,
@@ -137,7 +145,8 @@ class EventPump:
         elif k == "done":
             prompt = self.state.d.get("prompt") or 0
             self.state.update(
-                stage="idle", stage_since=ev["ts"], tool=None, tok_s=0.0,
+                stage="idle", stage_since=self._since("idle", ev["ts"]),
+                tool=None, tok_s=0.0,
                 gen=ev.get("n"), context=prompt + (ev.get("n") or 0),
                 last_line_ts=ev["ts"], started_ts=None, engine="running",
                 last_request={"n": ev.get("n"), "sec": ev.get("sec"),
@@ -150,7 +159,8 @@ class EventPump:
         elif k == "ready":
             updates = dict(last_line_ts=ev["ts"], engine="running", tok_s=0.0)
             if self.state.d["stage"] in ("starting", "stopped", "error", "idle"):
-                updates.update(stage="idle", stage_since=ev["ts"])
+                updates.update(stage="idle",
+                               stage_since=self._since("idle", ev["ts"]))
             if ev.get("context_window"):
                 updates["context_window"] = ev["context_window"]
                 self.store.set_meta("context_window", ev["context_window"])
@@ -166,7 +176,8 @@ class EventPump:
         elif k == "lifecycle":
             stage = ev["stage"]
             self.state.update(
-                stage=stage, stage_since=ev["ts"], tool=None, tok_s=0.0,
+                stage=stage, stage_since=self._since(stage, ev["ts"]),
+                tool=None, tok_s=0.0,
                 last_line_ts=ev["ts"],
                 engine="failed" if stage == "error" else "running")
             self._add(ev["ts"], stage)
@@ -181,18 +192,21 @@ class EventPump:
         a, ts = ev["action"], ev["ts"]
         if a == "started":
             self.state.update(engine="running", stage="starting",
-                              stage_since=ts, tok_s=0.0, tool=None,
+                              stage_since=self._since("starting", ts),
+                              tok_s=0.0, tool=None,
                               gen=None, prompt=None, context=None,
                               budget=None, elapsed=None, started_ts=None,
                               last_line_ts=ts)
             return "starting"
         if a in ("stopped", "stopping"):
             self.state.update(engine="stopped", stage="stopped",
-                              stage_since=ts, tok_s=0.0, last_line_ts=ts)
+                              stage_since=self._since("stopped", ts),
+                              tok_s=0.0, last_line_ts=ts)
             return "stopped"
         if a == "failed":
             self.state.update(engine="failed", stage="stopped",
-                              stage_since=ts, tok_s=0.0, last_line_ts=ts)
+                              stage_since=self._since("stopped", ts),
+                              tok_s=0.0, last_line_ts=ts)
             return "stopped"
         if a == "exited":
             status = ev.get("status") or ""
@@ -201,7 +215,8 @@ class EventPump:
             return None
         if a == "restarting":
             self.state.update(engine="restarting", stage="starting",
-                              stage_since=ts, last_line_ts=ts)
+                              stage_since=self._since("starting", ts),
+                              last_line_ts=ts)
             return "starting"
         return None
 
