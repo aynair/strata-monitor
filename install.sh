@@ -1,12 +1,50 @@
 #!/usr/bin/env bash
 # Install the strata web monitor as an Ubuntu 24.04 systemd daemon.
-#   sudo ./install.sh
+#   sudo ./install.sh [--https-port N] [--yes] [--no-ufw]
+# Firewall: checks ufw for the nginx HTTPS port (default 8443) and offers to
+# open it. The monitor's own 8090 is loopback-only and is never opened.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP=/opt/strata-monitor
 CONF_DIR=/etc/strata-monitor
 UNIT=strata-monitor.service
+
+HTTPS_PORT=8443 UFW_YES=0 UFW_SKIP=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --https-port) HTTPS_PORT="${2:?--https-port needs a value}"; shift 2 ;;
+    --https-port=*) HTTPS_PORT="${1#*=}"; shift ;;
+    --yes) UFW_YES=1; shift ;;
+    --no-ufw) UFW_SKIP=1; shift ;;
+    -h|--help) sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+maybe_open_firewall() {
+  local port="$1"
+  [[ $UFW_SKIP -eq 1 ]] && { echo "firewall: skipped (--no-ufw)"; return; }
+  command -v ufw >/dev/null || { echo "firewall: ufw not installed; skipping"; return; }
+  local status; status="$(ufw status 2>/dev/null || true)"
+  grep -qi '^Status: *active' <<<"$status" \
+      || { echo "firewall: ufw inactive; nothing to do"; return; }
+  local already=0
+  grep -Eq "(^|[^0-9])${port}(/tcp)?([^0-9]|$)" <<<"$status" && already=1
+  if [[ $already -eq 0 && ( "$port" = 443 || "$port" = 80 ) ]] \
+      && grep -Eiq 'nginx' <<<"$status"; then already=1; fi
+  if [[ $already -eq 1 ]]; then echo "firewall: ${port}/tcp already allowed"; return; fi
+  if [[ $UFW_YES -eq 1 ]]; then
+    ufw allow "${port}/tcp"; echo "firewall: allowed ${port}/tcp"
+  elif [[ -t 0 ]]; then
+    local a
+    read -r -p "firewall: ufw allow ${port}/tcp? [y/N] " a
+    if [[ $a =~ ^[Yy] ]]; then ufw allow "${port}/tcp"; echo "firewall: allowed ${port}/tcp"
+    else echo "firewall: skipped; manual: sudo ufw allow ${port}/tcp"; fi
+  else
+    echo "firewall: not allowed; manual: sudo ufw allow ${port}/tcp"
+  fi
+}
 
 [[ $EUID -eq 0 ]] || { echo "run me as root:  sudo $0" >&2; exit 1; }
 
@@ -52,3 +90,8 @@ echo "  dashboard:  https://${HOSTN}/   (via nginx; see $CONF_DIR/strata-monitor
 echo "  local only: http://127.0.0.1:${PORT}/   (the monitor binds loopback HTTP)"
 echo "  config:     $CONF_DIR/config.json   (restart: systemctl restart $UNIT)"
 echo "  logs:       journalctl -u $UNIT -f"
+
+echo
+echo "  firewall:   checking ufw for the nginx HTTPS port ${HTTPS_PORT}/tcp"
+echo "              (the monitor's own 8090 is loopback-only and is not opened)"
+maybe_open_firewall "$HTTPS_PORT"
