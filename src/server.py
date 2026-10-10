@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import ssl
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -37,6 +38,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if getattr(self.server, "tls", False):
+            self.send_header("Strict-Transport-Security",
+                             "max-age=31536000")
         self.end_headers()
         self.wfile.write(body)
 
@@ -112,4 +116,12 @@ def make_server(state, store, cfg):
     httpd.state = state
     httpd.store = store
     httpd.cfg = cfg
+    httpd.tls = False
+    if cfg.get("tls", True):
+        cert, key = cfg["tls_cert"], cfg["tls_key"]
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(cert, key)
+        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+        httpd.tls = True
     return httpd

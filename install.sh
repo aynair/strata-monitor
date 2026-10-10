@@ -39,6 +39,8 @@ systemctl --no-pager -l status "$UNIT" | sed -n '1,12p' || true
 PORT="$(python3 -c "import json;print(json.load(open('$CONF_DIR/config.json')).get('port', 8090))")"
 HOSTN="$(hostname -f 2>/dev/null || hostname)"
 echo
-echo "  dashboard:  http://${HOSTN}:${PORT}/"
+echo "  dashboard:  https://${HOSTN}:${PORT}/   (self-signed cert auto-created"
+echo "              in /var/lib/strata-monitor/tls/; set tls_cert/tls_key in"
+echo "              config.json for a real CA cert)"
 echo "  config:     $CONF_DIR/config.json   (restart: systemctl restart $UNIT)"
 echo "  logs:       journalctl -u $UNIT -f"
