@@ -28,6 +28,14 @@ else
     echo "installed default config -> $CONF_DIR/config.json"
 fi
 
+# nginx reverse-proxy template (HTTPS). Not applied automatically: copy it to
+# /etc/nginx/sites-available/, edit the cert paths, then reload nginx.
+if [[ -f "$SRC/deploy/strata-monitor.nginx.conf" ]]; then
+    install -m 0644 "$SRC/deploy/strata-monitor.nginx.conf" \
+        "$CONF_DIR/strata-monitor.nginx.conf"
+    echo "nginx template -> $CONF_DIR/strata-monitor.nginx.conf (edit cert paths)"
+fi
+
 install -m 0644 "$SRC/$UNIT" "/etc/systemd/system/$UNIT"
 systemctl daemon-reload
 systemctl enable "$UNIT"
@@ -39,8 +47,7 @@ systemctl --no-pager -l status "$UNIT" | sed -n '1,12p' || true
 PORT="$(python3 -c "import json;print(json.load(open('$CONF_DIR/config.json')).get('port', 8090))")"
 HOSTN="$(hostname -f 2>/dev/null || hostname)"
 echo
-echo "  dashboard:  https://${HOSTN}:${PORT}/   (self-signed cert auto-created"
-echo "              in /var/lib/strata-monitor/tls/; set tls_cert/tls_key in"
-echo "              config.json for a real CA cert)"
+echo "  dashboard:  https://${HOSTN}/   (via nginx; see $CONF_DIR/strata-monitor.nginx.conf)"
+echo "  local only: http://127.0.0.1:${PORT}/   (the monitor binds loopback HTTP)"
 echo "  config:     $CONF_DIR/config.json   (restart: systemctl restart $UNIT)"
 echo "  logs:       journalctl -u $UNIT -f"

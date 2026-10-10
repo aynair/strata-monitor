@@ -1,6 +1,6 @@
 {
   "unit": "strata.service",
-  "bind": "0.0.0.0",
+  "bind": "127.0.0.1",
   "port": 8090,
   "log_file": null,
   "file_position": "end",
@@ -10,7 +10,5 @@
   "gpu_interval_s": 3.0,
   "retention_days": 14,
   "stale_after_s": 30,
-  "db": "/var/lib/strata-monitor/monitor.db",
-  "tls_cert": null,
-  "tls_key": null
+  "db": "/var/lib/strata-monitor/monitor.db"
 }
