@@ -25,6 +25,63 @@ canvas charts (no CDN, no web framework).
 - **Plain HTTP on `127.0.0.1` only**; nginx in front for HTTPS — TLS is
   the proxy's job, the monitor never needs the private key
 
+## Architecture
+
+```mermaid
+graph TD
+    Internet["Internet<br/>(browsers, opencode,<br/>external tools)"]
+
+    subgraph tls["Reverse proxy (TLS termination)"]
+        Nginx443["nginx :443"]
+        Nginx8443["nginx :8443"]
+    end
+
+    subgraph apps["Loopback-only services"]
+        WebUI["open-webui<br/>127.0.0.1:3000"]
+        Monitor["strata-monitor<br/>127.0.0.1:8090"]
+    end
+
+    Engine["strata — Qwen3.8-Flash-Next<br/>systemd: strata.service<br/>127.0.0.1:8081<br/>(OpenAI / Anthropic-compatible API)"]
+
+    Internet -->|"https://<your.domain>:443"| Nginx443
+    Internet -->|"https://<your.domain>:8443"| Nginx8443
+    Nginx443 -->|"proxy_pass :3000"| WebUI
+    Nginx8443 -->|"proxy_pass :8090"| Monitor
+    WebUI -->|"http://127.0.0.1:8081/v1"| Engine
+    Monitor -->|"journalctl -u strata.service<br/>psutil, nvidia-smi"| Engine
+```
+
+Five components, three trust zones:
+
+1. **strata** — the LLM inference engine. Runs Qwen3.8-Flash-Next
+   (a 125B-parameter mixture-of-experts model) on your CPU/GPU. Managed as a
+   systemd unit (`strata.service`); exposes an OpenAI/Anthropic-compatible API
+   on `http://127.0.0.1:8081` — loopback only, not reachable from the network.
+   See <https://github.com/Niko1221/Strata>.
+
+2. **open-webui** — a web chat frontend. Connects to strata on
+   `http://127.0.0.1:8081/v1` and serves its UI on `127.0.0.1:3000`. Also
+   mints API keys that **external tools** (opencode, coding agents, custom
+   harnesses) use to call the model through the same OpenAI-compatible
+   endpoint proxied by nginx — point the tool's `base_url` at
+   `https://<your.domain>/v1` and paste the key.
+
+3. **nginx on :443** — TLS reverse proxy in front of open-webui. Terminates
+   HTTPS for `https://<your.domain>` and forwards plain HTTP to
+   `127.0.0.1:3000`. Owns the certificate and the private key.
+
+4. **strata-monitor (this project)** — reads `strata.service`'s systemd
+   journal plus live CPU/RAM/GPU samples and renders the dashboard on
+   `http://127.0.0.1:8090`. Plain HTTP, loopback-only, no auth — by design.
+
+5. **nginx on :8443** — second TLS reverse proxy, on a non-standard port so
+   it can coexist with the open-webui proxy on :443. Forwards
+   `https://<your.domain>:8443` to the monitor at `127.0.0.1:8090`. A
+   ready-made config ships in `deploy/strata-monitor.nginx-port8443.conf`.
+
+External users reach the chat at `https://<your.domain>`. The monitor lives
+at `https://<your.domain>:8443` for ops and debugging only.
+
 ## Install (Ubuntu 24.04, root)
 
 On the machine running the strata engine (needs local journal + GPU access):
