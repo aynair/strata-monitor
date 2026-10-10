@@ -28,12 +28,13 @@ else
     echo "installed default config -> $CONF_DIR/config.json"
 fi
 
-# nginx reverse-proxy template (HTTPS). Not applied automatically: copy it to
+# nginx reverse-proxy templates (HTTPS). Not applied automatically: copy one to
 # /etc/nginx/sites-available/, edit the cert paths, then reload nginx.
-if [[ -f "$SRC/deploy/strata-monitor.nginx.conf" ]]; then
-    install -m 0644 "$SRC/deploy/strata-monitor.nginx.conf" \
-        "$CONF_DIR/strata-monitor.nginx.conf"
-    echo "nginx template -> $CONF_DIR/strata-monitor.nginx.conf (edit cert paths)"
+#   strata-monitor.nginx.conf          -> dedicated host on 443
+#   strata-monitor.nginx-port8443.conf -> extra site on port 8443 (no new DNS)
+if compgen -G "$SRC/deploy/*.conf" > /dev/null; then
+    install -m 0644 "$SRC"/deploy/*.conf "$CONF_DIR/"
+    echo "nginx templates -> $CONF_DIR/strata-monitor.nginx*.conf (edit cert paths)"
 fi
 
 install -m 0644 "$SRC/$UNIT" "/etc/systemd/system/$UNIT"

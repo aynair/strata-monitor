@@ -48,16 +48,21 @@ Logs: `journalctl -u strata-monitor -f`
 ## HTTPS via nginx
 
 The monitor is plain HTTP bound to `127.0.0.1`, so it is only reachable through
-a reverse proxy. A ready-made nginx site template ships at
-`deploy/strata-monitor.nginx.conf` (also copied to
-`/etc/strata-monitor/strata-monitor.nginx.conf` by `install.sh`). Cert paths are
-placeholders — edit them per host; nothing is baked into the app:
+a reverse proxy. Two ready-made nginx templates ship in `deploy/` (also copied
+to `/etc/strata-monitor/` by `install.sh`). Cert paths are placeholders — edit
+them per host; nothing is baked into the app:
+
+- `strata-monitor.nginx.conf` — dedicated host on **443** (own `server_name`).
+- `strata-monitor.nginx-port8443.conf` — extra site on **8443**, for when you
+  already have a site on 443 and don't want new DNS.
 
 ```sh
-sudo cp /etc/strata-monitor/strata-monitor.nginx.conf /etc/nginx/sites-available/strata-monitor
+# pick one, e.g. the port variant:
+sudo cp /etc/strata-monitor/strata-monitor.nginx-port8443.conf /etc/nginx/sites-available/strata-monitor
 sudo ln -s /etc/nginx/sites-available/strata-monitor /etc/nginx/sites-enabled/
-# edit server_name + ssl_certificate / ssl_certificate_key (e.g. /etc/ssl/private/<host>.key)
+# edit server_name + ssl_certificate / ssl_certificate_key (e.g. /etc/ssl/private/ai.key)
 sudo nginx -t && sudo systemctl reload nginx
+sudo ufw allow 8443/tcp        # if you have a firewall
 ```
 
 The template terminates TLS, sets `Strict-Transport-Security`, and `proxy_pass`es
@@ -89,7 +94,7 @@ src/
   server.py      stdlib HTTP API + static files
   static/        dashboard (index.html, style.css, app.js)
 config.json          production defaults (installed to /etc/strata-monitor/)
-deploy/strata-monitor.nginx.conf  nginx HTTPS template
+deploy/              nginx HTTPS templates (443 host + 8443 port variants)
 strata-monitor.service  systemd unit (hardened, DynamicUser)
 install.sh        one-shot installer
 ```
