@@ -1,19 +1,29 @@
-# strata web monitor
+# Strata Monitor
 
-Live web dashboard for the **strata** LLM engine daemon: current stage
-(thinking / answering / tool call / prefill), token/s output, CPU cores used,
-context-window usage, GPU stats, system health, and time-series plots —
-all rendered on a single page with hand-rolled canvas charts (no external assets).
+**Monitor your local LLM.** A live web dashboard for
+[**Strata**](https://github.com/Niko1221/Strata) — the free, open-source
+inference engine that runs 125B-parameter models on consumer hardware.
+Strata runs the model; this project watches it. Point it at the
+`strata.service` journal and it shows you, in real time, which stage
+the engine is in (thinking / answering / tool call / prefill), how
+fast it generates tokens, how full the context window is, and how your
+GPU/CPU/RAM are holding up — all on a single page with hand-rolled
+canvas charts (no CDN, no web framework).
 
-- Pure Python 3 stdlib + `psutil`, no web framework, no CDN. The monitor serves
-  plain HTTP on `127.0.0.1` only; put **nginx in front** for HTTPS (see
-  [HTTPS via nginx](#https-via-nginx)). TLS is the proxy's job, so the monitor
-  never needs the private key.
-- Reads `strata.service` journal logs (`journalctl -f`) plus live CPU/RAM/GPU
-  sampling (`psutil`, `nvidia-smi`). Historical stage/tok/context rows are
-  backfilled at their real timestamps from the log; CPU/GPU/RAM fill in live.
-- Data stored in SQLite (WAL); 14-day retention by default; history is
-  bucketed server-side.
+![strata-monitor dashboard](docs/screenshot.png)
+
+## Features
+
+- **Engine stage** with colored background bands on the time-series
+- **Tokens/s** with rolling history
+- **Context window** usage
+- **Live CPU cores, RAM, GPU** (utilization, VRAM, temperature, power)
+- **Time-series plots** (hand-rolled canvas, no external assets)
+- **Systemd journal backfill** to reconstruct history at real timestamps
+- **SQLite (WAL) storage**, 14-day retention
+- **Pure Python 3 stdlib + `psutil`**, no web framework, no CDN
+- **Plain HTTP on `127.0.0.1` only**; nginx in front for HTTPS — TLS is
+  the proxy's job, the monitor never needs the private key
 
 ## Install (Ubuntu 24.04, root)
 
@@ -141,6 +151,7 @@ deploy/              nginx HTTPS templates (443 host + 8443 port variants)
 strata-monitor.service  systemd unit (hardened, DynamicUser)
 install.sh        one-shot installer
 uninstall.sh      one-shot remover
+docs/             screenshot used in README.md
 ```
 
 ### Stages
