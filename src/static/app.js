@@ -75,6 +75,7 @@ class Plot {
     }, opts);
     this.data = { ts: [], v: [], stages: [] };
     this.domain = null;
+    this.gapThreshold = Infinity;
     this.hover = -1;
     this.pad = { l: 50, r: 12, t: 10, b: 22 };
 
@@ -90,9 +91,20 @@ class Plot {
     this.data = { ts: ts || [], v: v || [], stages: stages || [] };
     this.domain = (domain && domain.length === 2 && domain[1] > domain[0])
       ? domain : null;
+    this._gapThreshold();
     this.hover = -1;
     this.tip.style.display = "none";
     this.draw();
+  }
+
+  _gapThreshold() {
+    const ts = this.data.ts;
+    if (!ts || ts.length < 2) { this.gapThreshold = Infinity; return; }
+    const d = [];
+    for (let i = 1; i < ts.length; i++) { const g = ts[i] - ts[i - 1]; if (g > 0) d.push(g); }
+    if (!d.length) { this.gapThreshold = Infinity; return; }
+    d.sort((a, b) => a - b);
+    this.gapThreshold = d[d.length >> 1] * 3;
   }
 
   resize() {
@@ -208,7 +220,8 @@ class Plot {
       let i = 0;
       while (i < st.length) {
         let j = i;
-        while (j + 1 < st.length && st[j + 1] === st[i]) j++;
+        while (j + 1 < st.length && st[j + 1] === st[i] &&
+               ts[j + 1] - ts[j] <= this.gapThreshold) j++;
         const meta = STAGES[st[i]];
         if (meta && st[i] !== "idle" && st[i] !== "stopped") {
           const xa = i === 0 ? g.x0 : xOf(ts[i]);
@@ -255,6 +268,7 @@ class Plot {
     for (let i = 0; i < ts.length; i++) {
       const v = this.data.v[i];
       if (v === null || v === undefined || !isFinite(v)) { pen = false; continue; }
+      if (pen && i > 0 && ts[i] - ts[i - 1] > this.gapThreshold) pen = false;
       const x = xOf(ts[i]), y = yOf(v);
       if (!pen) { ctx.moveTo(x, y); pen = true; } else { ctx.lineTo(x, y); }
     }
