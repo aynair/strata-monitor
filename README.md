@@ -29,6 +29,45 @@ Dashboard: `https://<host>/` through nginx (the monitor itself listens on
 Config: `/etc/strata-monitor/config.json` (restart the unit after editing)
 Logs: `journalctl -u strata-monitor -f`
 
+## Uninstall (root)
+
+`uninstall.sh` reverses `install.sh`: it stops and disables the unit, removes
+the systemd unit (+ any drop-ins), and deletes `/opt/strata-monitor` and
+`/etc/strata-monitor`. The SQLite data in `/var/lib/strata-monitor/` is **kept**
+by default.
+
+```sh
+sudo ./uninstall.sh              # stop+disable, remove app + config, keep data
+sudo ./uninstall.sh --dry-run    # preview what would be removed
+sudo ./uninstall.sh --purge      # also delete /var/lib/strata-monitor (history)
+sudo ./uninstall.sh --keep-config   # leave /etc/strata-monitor in place
+sudo ./uninstall.sh --purge-deps    # also remove python3-psutil
+```
+
+### Database
+
+All history lives in the SQLite file at the `db` path (default
+`/var/lib/strata-monitor/monitor.db`, plus WAL sidecars `monitor.db-wal` /
+`monitor.db-shm`). `uninstall.sh` keeps it unless you pass `--purge`, which
+deletes the whole `/var/lib/strata-monitor/` state directory.
+
+To wipe history but keep the service installed:
+
+```sh
+sudo systemctl stop strata-monitor
+sudo rm -f /var/lib/strata-monitor/monitor.db /var/lib/strata-monitor/monitor.db-wal /var/lib/strata-monitor/monitor.db-shm
+sudo systemctl start strata-monitor   # an empty DB is recreated on start
+```
+
+The nginx site and any firewall rule were created by you (not by `install.sh`),
+so they are left for you to remove:
+
+```sh
+sudo rm /etc/nginx/sites-{available,enabled}/strata-monitor
+sudo nginx -t && sudo systemctl reload nginx
+sudo ufw delete allow 8443/tcp        # whichever port you opened
+```
+
 ## Config
 
 | key                | default                     | meaning                                              |
@@ -101,6 +140,7 @@ config.json          production defaults (installed to /etc/strata-monitor/)
 deploy/              nginx HTTPS templates (443 host + 8443 port variants)
 strata-monitor.service  systemd unit (hardened, DynamicUser)
 install.sh        one-shot installer
+uninstall.sh      one-shot remover
 ```
 
 ### Stages
