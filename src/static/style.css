@@ -1,3 +1,49 @@
+:root[data-theme="night"] {
+  --bg: #0b1220;
+  --panel: #111a2c;
+  --panel2: #0e1626;
+  --border: #1d2a42;
+  --text: #dce6f5;
+  --dim: #7f8ea8;
+  --accent: #4fd1c5;
+  --header-grad: linear-gradient(180deg, #101a2e, #0d1524);
+  --grid: #1a2438;
+  --dotstroke: #0b1220;
+  --hover-ring: #33415588;
+  --bar-track: #0a1120;
+  --tip-bg: #0a1120f2;
+  --range-on-bg: #14324a;
+  --range-on-text: #7dd3fc;
+  --range-on-border: #1d4a6b;
+  --theme-btn-bg: #0e1626;
+  --theme-btn-border: #1d2a42;
+  --theme-btn-text: #dce6f5;
+  --theme-btn-hover: #22314f;
+}
+
+:root[data-theme="day"] {
+  --bg: #eef2f7;
+  --panel: #ffffff;
+  --panel2: #f6f8fb;
+  --border: #d4dce8;
+  --text: #1c2735;
+  --dim: #5b6b82;
+  --accent: #0f766e;
+  --header-grad: linear-gradient(180deg, #e6ebf2, #f1f4f9);
+  --grid: #d8e0ec;
+  --dotstroke: #ffffff;
+  --hover-ring: #94a3b888;
+  --bar-track: #e6ebf2;
+  --tip-bg: #fffffffa;
+  --range-on-bg: #dbeafe;
+  --range-on-text: #075985;
+  --range-on-border: #93c5fd;
+  --theme-btn-bg: #ffffff;
+  --theme-btn-border: #d4dce8;
+  --theme-btn-text: #1c2735;
+  --theme-btn-hover: #e9edf4;
+}
+
 :root {
   --bg: #0b1220;
   --panel: #111a2c;
@@ -6,6 +52,19 @@
   --text: #dce6f5;
   --dim: #7f8ea8;
   --accent: #4fd1c5;
+  --header-grad: linear-gradient(180deg, #101a2e, #0d1524);
+  --grid: #1a2438;
+  --dotstroke: #0b1220;
+  --hover-ring: #33415588;
+  --bar-track: #0a1120;
+  --tip-bg: #0a1120f2;
+  --range-on-bg: #14324a;
+  --range-on-text: #7dd3fc;
+  --range-on-border: #1d4a6b;
+  --theme-btn-bg: #0e1626;
+  --theme-btn-border: #1d2a42;
+  --theme-btn-text: #dce6f5;
+  --theme-btn-hover: #22314f;
 }
 
 * { box-sizing: border-box; }
@@ -27,7 +86,7 @@ header {
   align-items: center;
   gap: 14px;
   padding: 10px 16px;
-  background: linear-gradient(180deg, #101a2e, #0d1524);
+  background: var(--header-grad);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -106,7 +165,7 @@ main { padding: 14px 16px 4px; max-width: 1500px; margin: 0 auto; }
 
 .bar {
   height: 7px;
-  background: #0a1120;
+  background: var(--bar-track);
   border: 1px solid var(--border);
   border-radius: 5px;
   margin-top: 9px;
@@ -145,7 +204,7 @@ main { padding: 14px 16px 4px; max-width: 1500px; margin: 0 auto; }
 .tip {
   position: absolute;
   pointer-events: none;
-  background: #0a1120f2;
+  background: var(--tip-bg);
   border: 1px solid var(--border);
   border-radius: 7px;
   padding: 6px 9px;
@@ -180,10 +239,28 @@ main { padding: 14px 16px 4px; max-width: 1500px; margin: 0 auto; }
 }
 .ranges button:hover { color: var(--text); }
 .ranges button.on {
-  background: #14324a;
-  color: #7dd3fc;
-  border-color: #1d4a6b;
+  background: var(--range-on-bg);
+  color: var(--range-on-text);
+  border-color: var(--range-on-border);
 }
+
+#theme {
+  background: var(--theme-btn-bg);
+  color: var(--theme-btn-text);
+  border: 1px solid var(--theme-btn-border);
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+#theme:hover { background: var(--theme-btn-hover); }
+#theme[aria-pressed="true"] { background: var(--range-on-bg); border-color: var(--range-on-border); }
 
 .legend { display: flex; gap: 12px; flex-wrap: wrap; }
 .legend span { font-size: 11px; color: var(--dim); }

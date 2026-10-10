@@ -3,6 +3,9 @@
 
 const $ = (id) => document.getElementById(id);
 
+const pal = (name, fallback) =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+
 const STAGES = {
   idle:      { c: "#64748b", l: "idle" },
   starting:  { c: "#38bdf8", l: "starting" },
@@ -168,7 +171,7 @@ class Plot {
     const ts = this.data.ts;
 
     if (!ts.length) {
-      ctx.fillStyle = "#7f8ea8";
+      ctx.fillStyle = pal("--dim", "#7f8ea8");
       ctx.font = "12px ui-monospace, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.fillText("no data yet", this.w / 2, this.h / 2);
@@ -205,9 +208,9 @@ class Plot {
     ctx.textBaseline = "middle";
     for (let v = scale.min; v <= scale.max + 1e-9; v += scale.step) {
       const y = yOf(v);
-      ctx.strokeStyle = "#1a2438";
+      ctx.strokeStyle = pal("--grid", "#1a2438");
       ctx.beginPath(); ctx.moveTo(g.x0, y); ctx.lineTo(g.x1, y); ctx.stroke();
-      ctx.fillStyle = "#7f8ea8";
+      ctx.fillStyle = pal("--dim", "#7f8ea8");
       ctx.textAlign = "right";
       ctx.fillText(this.o.fmt(v), g.x0 - 7, y);
     }
@@ -220,7 +223,7 @@ class Plot {
     for (let k = 0; k <= ticks; k++) {
       const t = t0 + span * (k / ticks);
       const x = xOf(t);
-      ctx.fillStyle = "#7f8ea8";
+      ctx.fillStyle = pal("--dim", "#7f8ea8");
       ctx.textAlign = k === 0 ? "left" : k === ticks ? "right" : "center";
       ctx.fillText(xLabel(t, span), x, this.h - 6);
     }
@@ -244,14 +247,14 @@ class Plot {
     if (this.hover >= 0 && this.hover < ts.length) {
       const v = this.data.v[this.hover];
       const x = xOf(ts[this.hover]);
-      ctx.strokeStyle = "#33415588";
+      ctx.strokeStyle = pal("--hover-ring", "#33415588");
       ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(x, g.y0); ctx.lineTo(x, g.y1); ctx.stroke();
       ctx.setLineDash([]);
       if (v !== null && v !== undefined && isFinite(v)) {
         ctx.fillStyle = this.o.color;
         ctx.beginPath(); ctx.arc(x, yOf(v), 3.2, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = "#0b1220";
+        ctx.strokeStyle = pal("--dotstroke", "#0b1220");
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(x, yOf(v), 3.2, 0, Math.PI * 2); ctx.stroke();
       }
@@ -261,9 +264,40 @@ class Plot {
 
 /* ------------------------------------------------------------------ */
 const plots = {};
-let win = 3600;
+let win = 10;
 let STATE = null;
 let lastGoodHistory = 0;
+
+const HIST_MS = { 10: 1000, 7200: 5000, 86400: 15000, 604800: 60000 };
+let histTimer = null;
+
+const THEME_KEY = "strata-theme";
+function initTheme() {
+  const btn = $("theme");
+  const saved = localStorage.getItem(THEME_KEY);
+  const sysDark = () => matchMedia("(prefers-color-scheme: dark)").matches;
+  const apply = (t) => {
+    document.documentElement.dataset.theme = t;
+    btn.textContent = t === "day" ? "☀" : "☾";
+    btn.setAttribute("aria-pressed", t === "day" ? "true" : "false");
+  };
+  apply(saved || (sysDark() ? "night" : "day"));
+  btn.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "day" ? "night" : "day";
+    localStorage.setItem(THEME_KEY, next);
+    apply(next);
+    Object.values(plots).forEach((p) => p.draw());
+  });
+  matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+    if (!localStorage.getItem(THEME_KEY))
+      apply(sysDark() ? "night" : "day");
+  });
+}
+
+function scheduleHistory() {
+  if (histTimer) clearInterval(histTimer);
+  histTimer = setInterval(loadHistory, HIST_MS[win] || 15000);
+}
 
 function initPlots() {
   plots.toks = new Plot("p-toks", {
@@ -461,6 +495,7 @@ function initControls() {
     win = Number(b.dataset.window);
     for (const x of $("ranges").children) x.classList.toggle("on", x === b);
     loadHistory();
+    scheduleHistory();
   });
   let rt;
   window.addEventListener("resize", () => {
@@ -469,10 +504,11 @@ function initControls() {
   });
 }
 
+initTheme();
 initPlots();
 initControls();
 loadState();
 loadHistory();
 setInterval(loadState, 1000);
-setInterval(loadHistory, 5000);
+scheduleHistory();
 setTimeout(() => Object.values(plots).forEach((p) => p.resize()), 250);

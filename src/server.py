@@ -91,13 +91,13 @@ class Handler(BaseHTTPRequestHandler):
             window = int(q.get("window", ["3600"])[0])
         except ValueError:
             window = 3600
-        window = max(60, min(window, 30 * 86400))
+        window = max(10, min(window, 30 * 86400))
         now = time.time()
         try:
             now = float(q.get("now", [now])[0])
         except ValueError:
             pass
-        bucket = max(5, int(math.ceil(window / 600.0 / 5.0) * 5))
+        bucket = max(1, int(math.ceil(window / 600.0)))
         from_ts = int(now - window)
         data = self.server.store.get_history(from_ts, bucket)
         data.update(bucket_s=bucket, window_s=window, now=now,

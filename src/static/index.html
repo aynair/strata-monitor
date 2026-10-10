@@ -16,6 +16,7 @@
   </div>
   <div class="hdr-right">
     <span id="engine" class="pill">engine ?</span>
+    <button id="theme" type="button" title="toggle day/night theme" aria-pressed="false">☾</button>
     <span id="clock" class="pill dim"></span>
   </div>
 </header>
@@ -92,11 +93,10 @@
 
   <section class="controls">
     <div class="ranges" id="ranges">
-      <button data-window="900">15m</button>
-      <button data-window="3600" class="on">1h</button>
-      <button data-window="21600">6h</button>
-      <button data-window="86400">24h</button>
-      <button data-window="259200">3d</button>
+      <button data-window="10" class="on">10s</button>
+      <button data-window="7200">2h</button>
+      <button data-window="86400">1d</button>
+      <button data-window="604800">1w</button>
     </div>
     <div class="legend" id="legend"></div>
   </section>
