@@ -91,7 +91,7 @@ class Handler(BaseHTTPRequestHandler):
             window = int(q.get("window", ["3600"])[0])
         except ValueError:
             window = 3600
-        window = max(10, min(window, 30 * 86400))
+        window = max(600, min(window, 30 * 86400))
         now = time.time()
         try:
             now = float(q.get("now", [now])[0])
