@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+strata.log
+strata2.log
+*.db
+*.db-*
+*.out
+*.pid

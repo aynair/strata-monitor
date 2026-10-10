@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata Monitor</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">STRATA<span>monitor</span></div>
+  <div class="hdr-meta">
+    <span id="host" class="pill dim"></span>
+    <span id="model" class="pill dim"></span>
+    <span id="server-url" class="pill dim"></span>
+  </div>
+  <div class="hdr-right">
+    <span id="engine" class="pill">engine ?</span>
+    <span id="clock" class="pill dim"></span>
+  </div>
+</header>
+
+<main>
+  <section class="cards">
+    <div class="card" id="card-stage">
+      <div class="label">stage</div>
+      <div class="stage-row">
+        <span id="stage-dot" class="dot"></span>
+        <span id="stage-badge" class="stage-badge">–</span>
+      </div>
+      <div class="sub" id="stage-sub">waiting for data</div>
+    </div>
+
+    <div class="card">
+      <div class="label">output speed</div>
+      <div class="big"><span id="toks">0.0</span><span class="unit">tok/s</span></div>
+      <div class="sub" id="toks-sub">–</div>
+    </div>
+
+    <div class="card">
+      <div class="label">CPU cores used</div>
+      <div class="big"><span id="cpu">0.0</span><span class="unit" id="cpu-total">/ –</span></div>
+      <div class="sub" id="cpu-sub">–</div>
+    </div>
+
+    <div class="card">
+      <div class="label">context window</div>
+      <div class="big"><span id="ctx-pct">–</span><span class="unit" id="ctx-frac"></span></div>
+      <div class="bar"><div id="ctx-bar"></div></div>
+      <div class="sub" id="ctx-sub">–</div>
+    </div>
+
+    <div class="card">
+      <div class="label">GPU</div>
+      <div class="big"><span id="gpu-util">–</span><span class="unit">util %</span></div>
+      <div class="sub" id="gpu-sub">–</div>
+    </div>
+
+    <div class="card">
+      <div class="label">last request</div>
+      <div class="big"><span id="lr-toks">–</span><span class="unit">tok/s</span></div>
+      <div class="sub" id="lr-sub">–</div>
+    </div>
+  </section>
+
+  <section class="plot-grid">
+    <div class="plot" id="p-toks">
+      <h3>output speed <span class="hint">tok/s</span></h3>
+      <canvas></canvas><div class="tip"></div>
+    </div>
+    <div class="plot" id="p-cpu">
+      <h3>CPU cores used by strata <span class="hint">cores</span></h3>
+      <canvas></canvas><div class="tip"></div>
+    </div>
+    <div class="plot" id="p-ctx">
+      <h3>context window used <span class="hint">%</span></h3>
+      <canvas></canvas><div class="tip"></div>
+    </div>
+    <div class="plot" id="p-gpu">
+      <h3>GPU utilization <span class="hint">%</span></h3>
+      <canvas></canvas><div class="tip"></div>
+    </div>
+    <div class="plot" id="p-vram">
+      <h3>GPU memory <span class="hint">GiB</span></h3>
+      <canvas></canvas><div class="tip"></div>
+    </div>
+    <div class="plot" id="p-ram">
+      <h3>system RAM <span class="hint">%</span></h3>
+      <canvas></canvas><div class="tip"></div>
+    </div>
+  </section>
+
+  <section class="controls">
+    <div class="ranges" id="ranges">
+      <button data-window="900">15m</button>
+      <button data-window="3600" class="on">1h</button>
+      <button data-window="21600">6h</button>
+      <button data-window="86400">24h</button>
+      <button data-window="259200">3d</button>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+</main>
+
+<footer>
+  <span id="src">–</span>
+  <span id="updated">–</span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

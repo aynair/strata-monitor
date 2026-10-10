@@ -1,0 +1,31 @@
+[Unit]
+Description=Strata LLM web monitor
+Documentation=file:///opt/strata-monitor/monitor.py
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+SupplementaryGroups=systemd-journal
+StateDirectory=strata-monitor
+WorkingDirectory=/opt/strata-monitor
+ExecStart=/usr/bin/python3 /opt/strata-monitor/monitor.py /etc/strata-monitor/config.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+# hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/strata-monitor
+
+[Install]
+WantedBy=multi-user.target

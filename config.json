@@ -1,0 +1,14 @@
+{
+  "unit": "strata.service",
+  "bind": "0.0.0.0",
+  "port": 8090,
+  "log_file": null,
+  "file_position": "end",
+  "preload_hours": 24,
+  "sample_interval_s": 1.0,
+  "idle_interval_s": 10.0,
+  "gpu_interval_s": 3.0,
+  "retention_days": 14,
+  "stale_after_s": 30,
+  "db": "/var/lib/strata-monitor/monitor.db"
+}
