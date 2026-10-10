@@ -111,16 +111,21 @@ class EventPump:
             self._add(ev["ts"], "prefill", None, 0, ev["total"], ev["read"])
         elif k == "gen":
             prompt = self.state.d.get("prompt") or 0
+            # The engine's tok/s on the very first token of a turn (n == 1) is a
+            # division artifact of startup latency, not a real rate — ignore it.
+            reliable = ev["n"] > 1
             updates = dict(
                 stage=ev["stage"], stage_since=ev["ts"], tool=ev.get("tool"),
-                gen=ev["n"], budget=ev["max"], tok_s=ev["tok_s"],
+                gen=ev["n"], budget=ev["max"],
                 context=prompt + ev["n"], elapsed=ev["sec"],
                 last_line_ts=ev["ts"], engine="running")
+            if reliable:
+                updates["tok_s"] = ev["tok_s"]
             if self.state.d.get("started_ts") is None:
                 updates["started_ts"] = ev["ts"] - ev["sec"]
             self.state.update(**updates)
-            self._add(ev["ts"], ev["stage"], ev["tok_s"], ev["n"],
-                      prompt or None, prompt + ev["n"])
+            self._add(ev["ts"], ev["stage"], ev["tok_s"] if reliable else None,
+                      ev["n"], prompt or None, prompt + ev["n"])
         elif k == "tool_complete":
             prompt = self.state.d.get("prompt") or 0
             self.state.update(

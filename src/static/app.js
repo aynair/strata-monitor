@@ -108,7 +108,15 @@ class Plot {
     let lo = o.ymin, hi = o.ymax;
     const vals = this.data.v.filter((x) => x !== null && x !== undefined && isFinite(x));
     if (!vals.length) return null;
-    const dlo = Math.min(...vals), dhi = Math.max(...vals);
+    const dlo = Math.min(...vals);
+    let dhi = Math.max(...vals);
+    // robust axis: if the top value is a clear outlier, scale to the bulk of
+    // the data so a single bogus reading cannot squash the whole plot
+    if (hi === null || hi === undefined) {
+      const srt = vals.slice().sort((a, b) => a - b);
+      const p95 = srt[Math.max(0, Math.ceil(srt.length * 0.95) - 1)];
+      if (p95 > 0 && dhi > p95 * 3) dhi = p95 * 1.15;
+    }
     if (lo === null || lo === undefined) lo = Math.min(dlo, 0);
     if (hi === null || hi === undefined) hi = dhi + (dhi - lo) * 0.12 || 1;
     if (hi <= lo) hi = lo + 1;
