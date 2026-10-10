@@ -401,7 +401,12 @@ function renderState(s) {
   dot.style.background = meta.c;
   dot.style.boxShadow = `0 0 0 3px ${meta.c}33`;
   dot.classList.toggle("live", active);
-  let sub = `for ${dur(s.now - s.stage_since)}`;
+  let sub;
+  if (s.stage === "prefill" && s.prompt) {
+    sub = `reading ${fmtInt(s.context)} of ${fmtInt(s.prompt)} prompt tokens`;
+  } else {
+    sub = `for ${dur(s.now - s.stage_since)}`;
+  }
   if (s.tool) sub += ` · tool: ${s.tool}`;
   if (s.stale) sub += ` · no log for ${dur(s.age_s)}`;
   else if (s.age_s !== null && s.age_s > 2 && !ACTIVE.has(s.stage))
@@ -437,9 +442,8 @@ function renderState(s) {
     ? `${fmtInt(s.context)} / ${fmtInt(ctxWin)} tok` : "";
   $("ctx-bar").style.width = (pct ? Math.min(100, pct) : 0) + "%";
   let cs = "no request yet";
-  if (s.stage === "prefill" && s.prompt) {
-    cs = `reading ${fmtInt(s.context)} of ${fmtInt(s.prompt)} prompt tokens`;
-    if (s.elapsed) cs += ` · ${dur(s.elapsed)}`;
+  if (s.stage === "prefill") {
+    cs = "prefill";
   } else if (s.context != null) {
     cs = `prompt ${fmtInt(s.prompt)} · generated ${fmtInt(s.gen)}`;
     cs += ACTIVE.has(s.stage) ? " · request running" : " · last request";
