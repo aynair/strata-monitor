@@ -126,7 +126,8 @@ class Store:
     def get_history(self, from_ts, bucket_s):
         """Bucketed series: gauges averaged, cumulative counters and stage taken
         from the newest row of each bucket; tok/s averaged over active readings
-        only (idle 0.0 rows and prefill NULLs are excluded)."""
+        only (idle 0.0 rows and prefill NULLs are excluded from the mean), and
+        buckets with no active reading (idle/prefill) report 0."""
         avg = ", ".join(
             "AVG(%s) AS %s" % (c, c)
             for c in ("cpu_cores", "sys_ram_pct", "sys_load", "gpu_util",
@@ -137,7 +138,7 @@ class Store:
                g.gpu_vram_total, s.stage
         FROM (
             SELECT (ts / ?) * ? AS bts, COUNT(*) AS n, MAX(ts) AS maxts,
-                   AVG(NULLIF(tok_s, 0)) AS tok_s, {avg}
+                   COALESCE(AVG(NULLIF(tok_s, 0)), 0.0) AS tok_s, {avg}
             FROM samples WHERE ts >= ? GROUP BY bts
         ) g JOIN samples s ON s.ts = g.maxts
         ORDER BY g.bts
