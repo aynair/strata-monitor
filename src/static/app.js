@@ -74,6 +74,7 @@ class Plot {
       fmt: (v) => fmt1(v), tipFmt: (v) => fmt1(v), unit: "",
     }, opts);
     this.data = { ts: [], v: [], stages: [] };
+    this.domain = null;
     this.hover = -1;
     this.pad = { l: 50, r: 12, t: 10, b: 22 };
 
@@ -85,8 +86,10 @@ class Plot {
     this.resize();
   }
 
-  setData(ts, v, stages) {
+  setData(ts, v, stages, domain) {
     this.data = { ts: ts || [], v: v || [], stages: stages || [] };
+    this.domain = (domain && domain.length === 2 && domain[1] > domain[0])
+      ? domain : null;
     this.hover = -1;
     this.tip.style.display = "none";
     this.draw();
@@ -128,13 +131,19 @@ class Plot {
     return { x0: l, x1: this.w - r, y0: t, y1: this.h - b };
   }
 
+  _tspan() {
+    if (this.domain) return [this.domain[0], this.domain[1]];
+    const ts = this.data.ts;
+    return [ts[0], ts[ts.length - 1] || ts[0] + 1];
+  }
+
   _onMove(e) {
     const ts = this.data.ts;
     if (!ts.length) return;
     const rect = this.canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const g = this._geom();
-    const t0 = ts[0], t1 = ts[ts.length - 1] || ts[0] + 1;
+    const [t0, t1] = this._tspan();
     const frac = Math.min(1, Math.max(0, (mx - g.x0) / Math.max(1, g.x1 - g.x0)));
     const t = t0 + frac * (t1 - t0);
     let best = 0, bd = Infinity;
@@ -166,7 +175,7 @@ class Plot {
 
   _x(i, g) {
     const ts = this.data.ts;
-    const t0 = ts[0], t1 = ts[ts.length - 1] || ts[0] + 1;
+    const [t0, t1] = this._tspan();
     if (t1 <= t0) return (g.x0 + g.x1) / 2;
     return g.x0 + (ts[i] - t0) / (t1 - t0) * (g.x1 - g.x0);
   }
@@ -189,7 +198,7 @@ class Plot {
     const scale = this._range();
     if (!scale) return;
     const yOf = (v) => g.y1 - (v - scale.min) / (scale.max - scale.min) * (g.y1 - g.y0);
-    const t0 = ts[0], t1 = ts[ts.length - 1] || ts[0] + 1;
+    const [t0, t1] = this._tspan();
     const xOf = (t) => t1 <= t0 ? (g.x0 + g.x1) / 2
       : g.x0 + (t - t0) / (t1 - t0) * (g.x1 - g.x0);
 
@@ -482,31 +491,32 @@ async function loadState() {
 function renderHistory(d) {
   lastGoodHistory = Date.now();
   const ctxWin = STATE && STATE.context_window;
+  const dom = (d.from_ts != null && d.now != null) ? [d.from_ts, d.now] : null;
 
-  plots.toks.setData(d.ts, d.tok_s, d.stage);
+  plots.toks.setData(d.ts, d.tok_s, d.stage, dom);
 
   const nproc = STATE ? STATE.nproc : null;
   plots.cpu.o.ymax = nproc || null;
-  plots.cpu.setData(d.ts, d.cpu, d.stage);
+  plots.cpu.setData(d.ts, d.cpu, d.stage, dom);
 
   if (ctxWin) {
     plots.ctx.o.unit = "%";
     plots.ctx.o.fmt = (v) => fmtInt(v);
     plots.ctx.o.tipFmt = (v) => fmt1(v);
-    plots.ctx.setData(d.ts, d.context.map((v) => (v == null ? null : 100 * v / ctxWin)), d.stage);
+    plots.ctx.setData(d.ts, d.context.map((v) => (v == null ? null : 100 * v / ctxWin)), d.stage, dom);
   } else {
     plots.ctx.o.unit = "tok";
     plots.ctx.o.tipFmt = (v) => fmtInt(v);
-    plots.ctx.setData(d.ts, d.context, d.stage);
+    plots.ctx.setData(d.ts, d.context, d.stage, dom);
   }
 
-  plots.gpu.setData(d.ts, d.gpu_util, d.stage);
+  plots.gpu.setData(d.ts, d.gpu_util, d.stage, dom);
 
   const vramTotal = d.gpu_vram_total.find((v) => v != null);
   plots.vram.o.ymax = vramTotal ? vramTotal / 1024 : null;
-  plots.vram.setData(d.ts, d.gpu_vram_used.map((v) => (v == null ? null : v / 1024)), d.stage);
+  plots.vram.setData(d.ts, d.gpu_vram_used.map((v) => (v == null ? null : v / 1024)), d.stage, dom);
 
-  plots.ram.setData(d.ts, d.sys_ram_pct, d.stage);
+  plots.ram.setData(d.ts, d.sys_ram_pct, d.stage, dom);
 }
 
 async function loadHistory() {

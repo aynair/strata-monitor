@@ -54,13 +54,13 @@ ON CONFLICT(ts) DO UPDATE SET
 
 
 def _needs_migration(con):
-    """True if an old samples table exists without the unique ts primary key."""
+    """True if an old samples table exists without ts as the primary key."""
     row = con.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='samples'"
     ).fetchone()
     if row is None:
         return False
-    return "PRIMARY KEY (ts)" not in (row[0] or "")
+    return "ts INTEGER PRIMARY KEY" not in (row[0] or "")
 
 
 def _row_tuple(s):
@@ -80,8 +80,17 @@ class Store:
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=NORMAL")
         if _needs_migration(self._db):
-            log.info("rebuilding samples table (pre-1.0 schema detected)")
-            self._db.execute("DROP TABLE IF EXISTS samples")
+            log.info("migrating samples table to ts-primary schema (preserving rows)")
+            cols = ", ".join(COLUMNS)
+            self._db.executescript(
+                "CREATE TABLE samples_new (ts INTEGER PRIMARY KEY,"
+                " stage INTEGER NOT NULL, tok_s REAL, gen INTEGER, prompt INTEGER,"
+                " context INTEGER, cpu_cores REAL, rss INTEGER, sys_ram_pct REAL,"
+                " sys_load REAL, gpu_util REAL, gpu_vram_used INTEGER,"
+                " gpu_vram_total INTEGER);"
+                "INSERT OR IGNORE INTO samples_new (%s) SELECT %s FROM samples"
+                " ORDER BY ts;" % (cols, cols) +
+                "DROP TABLE samples; ALTER TABLE samples_new RENAME TO samples;")
         self._db.executescript(_SCHEMA)
         self._db.commit()
 
@@ -115,18 +124,20 @@ class Store:
 
     # ---- reads --------------------------------------------------------
     def get_history(self, from_ts, bucket_s):
-        """Bucketed series: averaged metrics per bucket, stage of the newest row."""
+        """Bucketed series: gauges averaged, cumulative counters and stage taken
+        from the newest row of each bucket; tok/s averaged over active readings
+        only (idle 0.0 rows and prefill NULLs are excluded)."""
         avg = ", ".join(
             "AVG(%s) AS %s" % (c, c)
-            for c in ("tok_s", "cpu_cores", "context", "prompt", "gen",
-                      "sys_ram_pct", "sys_load", "gpu_util", "gpu_vram_used",
-                      "gpu_vram_total"))
+            for c in ("cpu_cores", "sys_ram_pct", "sys_load", "gpu_util",
+                      "gpu_vram_used", "gpu_vram_total"))
         sql = """
-        SELECT g.bts, g.n, g.tok_s, g.cpu_cores, g.context, g.prompt, g.gen,
+        SELECT g.bts, g.n, g.tok_s, g.cpu_cores, s.context, s.prompt, s.gen,
                g.sys_ram_pct, g.sys_load, g.gpu_util, g.gpu_vram_used,
                g.gpu_vram_total, s.stage
         FROM (
-            SELECT (ts / ?) * ? AS bts, COUNT(*) AS n, MAX(ts) AS maxts, {avg}
+            SELECT (ts / ?) * ? AS bts, COUNT(*) AS n, MAX(ts) AS maxts,
+                   AVG(NULLIF(tok_s, 0)) AS tok_s, {avg}
             FROM samples WHERE ts >= ? GROUP BY bts
         ) g JOIN samples s ON s.ts = g.maxts
         ORDER BY g.bts
