@@ -30,7 +30,8 @@ fi
 
 install -m 0644 "$SRC/$UNIT" "/etc/systemd/system/$UNIT"
 systemctl daemon-reload
-systemctl enable --now "$UNIT"
+systemctl enable "$UNIT"
+systemctl restart "$UNIT"
 sleep 1.5
 
 echo
