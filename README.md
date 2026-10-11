@@ -29,27 +29,27 @@ All on a single page with hand-rolled canvas charts (no CDN, no web framework).
 ## Architecture
 
 ```mermaid
-graph TD
-    Internet["Internet<br/>(browsers, opencode,<br/>external tools)"]
+flowchart TB
+    Internet["Internet - browsers, opencode, external tools"]
 
-    subgraph tls["Reverse proxy (TLS termination)"]
+    subgraph tls ["Reverse proxy (TLS termination)"]
         Nginx443["nginx :443"]
         Nginx8443["nginx :8443"]
     end
 
-    subgraph apps["Loopback-only services"]
-        WebUI["open-webui<br/>127.0.0.1:3000"]
-        Monitor["strata-monitor<br/>127.0.0.1:8090"]
+    subgraph apps ["Loopback-only services"]
+        WebUI["open-webui 127.0.0.1:3000"]
+        Monitor["strata-monitor 127.0.0.1:8090"]
     end
 
-    Engine["strata — Qwen3.8-Flash-Next<br/>systemd: strata.service<br/>127.0.0.1:8081<br/>(OpenAI / Anthropic-compatible API)"]
+    Engine["strata: Qwen3.8-Flash-Next | systemd strata.service | 127.0.0.1:8081 | OpenAI / Anthropic API"]
 
-    Internet -->|"https://your.domain:443"| Nginx443
-    Internet -->|"https://your.domain:8443"| Nginx8443
-    Nginx443 -->|"proxy_pass :3000"| WebUI
-    Nginx8443 -->|"proxy_pass :8090"| Monitor
-    WebUI -->|"http://127.0.0.1:8081/v1"| Engine
-    Monitor -->|"journalctl -u strata.service<br/>psutil, nvidia-smi"| Engine
+    Internet -- "https://your.domain:443" --> Nginx443
+    Internet -- "https://your.domain:8443" --> Nginx8443
+    Nginx443 -- "proxy_pass :3000" --> WebUI
+    Nginx8443 -- "proxy_pass :8090" --> Monitor
+    WebUI -- "http://127.0.0.1:8081/v1" --> Engine
+    Monitor -- "journalctl + psutil + nvidia-smi" --> Engine
 ```
 
 Five components, three trust zones:
