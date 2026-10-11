@@ -43,8 +43,8 @@ graph TD
 
     Engine["strata — Qwen3.8-Flash-Next<br/>systemd: strata.service<br/>127.0.0.1:8081<br/>(OpenAI / Anthropic-compatible API)"]
 
-    Internet -->|"https://<your.domain>:443"| Nginx443
-    Internet -->|"https://<your.domain>:8443"| Nginx8443
+    Internet -->|"https://your.domain:443"| Nginx443
+    Internet -->|"https://your.domain:8443"| Nginx8443
     Nginx443 -->|"proxy_pass :3000"| WebUI
     Nginx8443 -->|"proxy_pass :8090"| Monitor
     WebUI -->|"http://127.0.0.1:8081/v1"| Engine
