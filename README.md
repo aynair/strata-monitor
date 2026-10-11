@@ -1,14 +1,15 @@
 # Strata Monitor
 
-**Monitor your local LLM.** A live web dashboard for
+**Monitor your local LLM.** A live lightweight web dashboard for
 [**Strata**](https://github.com/Niko1221/Strata) — the free, open-source
 inference engine that runs 125B-parameter models on consumer hardware.
-Strata runs the model; this project watches it. Point it at the
-`strata.service` journal and it shows you, in real time, which stage
-the engine is in (thinking / answering / tool call / prefill), how
-fast it generates tokens, how full the context window is, and how your
-GPU/CPU/RAM are holding up — all on a single page with hand-rolled
-canvas charts (no CDN, no web framework).
+Strata runs the model; this project watches it. 
+Point it at the `strata.service` journal and it shows you, in real time, 
+- which stage the engine is in (thinking / answering / tool call / prefill), 
+- how fast it generates tokens, 
+- how full the context window is, and 
+- how your GPU/CPU/RAM are holding up.
+All on a single page with hand-rolled canvas charts (no CDN, no web framework).
 
 ![strata-monitor dashboard](docs/screenshot.png)
 
@@ -136,6 +137,8 @@ sudo ufw delete allow 8443/tcp        # whichever port you opened
 ```
 
 ## Config
+
+By default kept in **/etc/strata-monitor/config.json**.
 
 | key                | default                     | meaning                                              |
 |--------------------|-----------------------------|------------------------------------------------------|
