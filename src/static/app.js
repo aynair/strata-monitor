@@ -299,7 +299,7 @@ let win = 600;
 let STATE = null;
 let lastGoodHistory = 0;
 
-const HIST_MS = { 600: 1000, 7200: 5000, 86400: 15000, 604800: 60000 };
+const HIST_MS = { 60: 2000, 600: 1000, 7200: 5000, 86400: 15000, 604800: 60000 };
 let histTimer = null;
 
 const THEME_KEY = "strata-theme";
