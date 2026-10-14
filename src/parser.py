@@ -31,7 +31,7 @@ TOOL_DONE_RE = re.compile(
 DONE_RE = re.compile(
     r"^done:\s+(?P<n>[\d,]+) tokens in (?P<sec>\d+) s \((?P<toks>[\d.]+) tok/s\)"
     r" \((?P<reason>[^)]*)\)(?:, expert cache (?P<cache>[\d.]+)% hit"
-    r" \((?P<pcie>[\d.]+)% of the routed experts over PCIe\))?")
+    r" \((?P<pcie>[+-]?[\d.]+)% of the routed experts over PCIe\))?")
 READY_RE = re.compile(r"context (?P<ctx>[\d,]+) tokens")
 EXIT_RE = re.compile(r"exit code (?P<code>-\d+|\d+|None)")
 
@@ -142,20 +142,24 @@ def parse_line(line, now_ts=None, unit="strata.service"):
             return dict(base, kind="systemd", action="restarting")
         return None
 
-    if not msg.startswith("[strata] "):
-        # plain launcher lines: ready banner, model banner, boot hints
-        if msg.startswith("ready:"):
-            return _ready(base, msg)
-        m = re.match(r"Strata - (\S+) on ", msg)
+    msg_clean = msg.lstrip()
+    if msg_clean.startswith("[strata] "):
+        msg = msg_clean[len("[strata] "):].rstrip()
+    elif msg_clean.startswith("[strata]"):
+        msg = msg_clean[len("[strata]"):].lstrip().rstrip()
+    else:
+        msg_l = msg_clean
+        if msg_l.startswith("ready:"):
+            return _ready(base, msg_l)
+        m = re.match(r"Strata - (\S+) on ", msg_l)
         if m:
             return dict(base, kind="meta", model=m.group(1))
-        m = re.match(r"Starting ([^:]+):", msg)
+        m = re.match(r"Starting ([^:]+):", msg_l)
         if m:
             return dict(base, kind="meta", model=m.group(1).strip())
-        if any(k in msg for k in STARTING_KEYWORDS):
+        if any(k in msg or k in msg_l for k in STARTING_KEYWORDS):
             return dict(base, kind="lifecycle", stage="starting", detail=msg)
         return None
-    msg = msg[len("[strata] "):].rstrip()
 
     m = PROMPT_RE.match(msg)
     if m:
