@@ -54,10 +54,14 @@ if ! python3 -c 'import psutil' 2>/dev/null; then
     apt-get install -y -qq python3-psutil
 fi
 
-install -d -m 0755 "$APP" "$APP/static" "$CONF_DIR"
-install -m 0644 "$SRC"/src/*.py "$APP/"
-install -m 0644 "$SRC"/src/static/* "$APP/static/"
-chmod 0755 "$APP/monitor.py"
+# migrate away from the old flat layout (monitor.py directly in $APP)
+rm -f "$APP"/*.py
+rm -rf "$APP/static" "$APP/__pycache__"
+
+install -d -m 0755 "$APP/src" "$APP/src/static" "$CONF_DIR"
+install -m 0644 "$SRC"/src/*.py "$APP/src/"
+install -m 0644 "$SRC"/src/static/* "$APP/src/static/"
+chmod 0755 "$APP/src/monitor.py"
 
 if [[ -f "$CONF_DIR/config.json" ]]; then
     echo "keeping existing $CONF_DIR/config.json"

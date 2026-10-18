@@ -1,6 +1,6 @@
 [Unit]
 Description=Strata LLM web monitor
-Documentation=file:///opt/strata-monitor/monitor.py
+Documentation=file:///opt/strata-monitor/src/monitor.py
 After=network.target
 Wants=network.target
 
@@ -10,7 +10,7 @@ DynamicUser=yes
 SupplementaryGroups=systemd-journal
 StateDirectory=strata-monitor
 WorkingDirectory=/opt/strata-monitor
-ExecStart=/usr/bin/python3 /opt/strata-monitor/monitor.py /etc/strata-monitor/config.json
+ExecStart=/usr/bin/python3 /opt/strata-monitor/src/monitor.py /etc/strata-monitor/config.json
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=10
