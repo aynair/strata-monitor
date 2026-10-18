@@ -34,8 +34,30 @@ DONE_RE = re.compile(
     r" \((?P<pcie>[+-]?[\d.]+)% of the routed experts over PCIe\))?")
 READY_RE = re.compile(r"context (?P<ctx>[\d,]+) tokens")
 EXIT_RE = re.compile(r"exit code (?P<code>-\d+|\d+|None)")
+PROG_MODEL_RE = re.compile(r"^run-(?P<model>.+?)\.sh$")
 
 NUM = re.compile(r"[\d,]+")
+
+_UNIT_CACHE = {}
+
+
+def _unit_matcher(unit):
+    """(regex, is_template, base, suffix) for the configured unit.
+
+    A template unit ('strata@.service') matches every instance
+    ('strata@<model>.service'); the instance name is the model.
+    """
+    m = _UNIT_CACHE.get(unit)
+    if m is None:
+        if "@." in unit:
+            base, _, suffix = unit.partition("@.")
+            pat = re.compile(re.escape(base) + r"@(?P<inst>[A-Za-z0-9_.\-]+)\."
+                             + re.escape(suffix))
+            m = (pat, True, base, suffix)
+        else:
+            m = (re.compile(re.escape(unit)), False, None, None)
+        _UNIT_CACHE[unit] = m
+    return m
 
 
 def _num(s):
@@ -122,10 +144,15 @@ def parse_line(line, now_ts=None, unit="strata.service"):
     if ts is None:
         return None
     base = {"ts": ts, "host": host, "pid": int(pid) if pid else None}
+    matcher, is_tpl, u_base, u_suffix = _unit_matcher(unit)
 
     if prog == "systemd":
-        if unit not in msg:
+        mu = matcher.search(msg)
+        if not mu:
             return None
+        if is_tpl:
+            base["unit"] = mu.group(0)
+            base["model"] = mu.group("inst")
         if msg.startswith("Started "):
             return dict(base, kind="systemd", action="started")
         if msg.startswith("Main process exited"):
@@ -141,6 +168,12 @@ def parse_line(line, now_ts=None, unit="strata.service"):
         if "Scheduled restart job" in msg:
             return dict(base, kind="systemd", action="restarting")
         return None
+
+    pm = PROG_MODEL_RE.match(prog or "")
+    if pm:
+        base["model"] = pm.group("model")
+        if is_tpl:
+            base["unit"] = "%s@%s.%s" % (u_base, pm.group("model"), u_suffix)
 
     msg_clean = msg.lstrip()
     if msg_clean.startswith("[strata] "):

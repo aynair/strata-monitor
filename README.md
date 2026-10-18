@@ -4,7 +4,9 @@
 [**Strata**](https://github.com/Niko1221/Strata) — the free, open-source
 inference engine that runs 125B-parameter models on consumer hardware.
 Strata runs the model; this project watches it. 
-Point it at the `strata.service` journal and it shows you, in real time, 
+Point it at the `strata@*` journal and it shows you, in real time, 
+- which model is currently active (strata runs as a `strata@<model>.service`
+  template unit; llama-swap reloads it with different models),
 - which stage the engine is in (thinking / answering / tool call / prefill), 
 - how fast it generates tokens, 
 - how full the context window is, and 
@@ -42,7 +44,7 @@ flowchart TB
         Monitor["strata-monitor 127.0.0.1:8090"]
     end
 
-    Engine["strata: Qwen3.8-Flash-Next | systemd strata.service | 127.0.0.1:8081 | OpenAI / Anthropic API"]
+    Engine["strata: Qwen3.8-Flash-Next | systemd strata@<model>.service | 127.0.0.1:8081 | OpenAI / Anthropic API"]
 
     Internet -- "https://your.domain:443" --> Nginx443
     Internet -- "https://your.domain:8443" --> Nginx8443
@@ -56,7 +58,9 @@ Five components, three trust zones:
 
 1. **strata** — the LLM inference engine. Runs Qwen3.8-Flash-Next
    (a 125B-parameter mixture-of-experts model) on your CPU/GPU. Managed as a
-   systemd unit (`strata.service`); exposes an OpenAI/Anthropic-compatible API
+   systemd template unit (`strata@<model>.service`, one instance per model —
+   llama-swap starts/stops instances to switch models); exposes an
+   OpenAI/Anthropic-compatible API
    on `http://127.0.0.1:8081` — loopback only, not reachable from the network.
    See <https://github.com/Niko1221/Strata>.
 
@@ -71,9 +75,10 @@ Five components, three trust zones:
    HTTPS for `https://<your.domain>` and forwards plain HTTP to
    `127.0.0.1:3000`. Owns the certificate and the private key.
 
-4. **strata-monitor (this project)** — reads `strata.service`'s systemd
-   journal plus live CPU/RAM/GPU samples and renders the dashboard on
-   `http://127.0.0.1:8090`. Plain HTTP, loopback-only, no auth — by design.
+4. **strata-monitor (this project)** — reads the `strata@*` systemd journal
+   (every template instance) plus live CPU/RAM/GPU samples and renders the
+   dashboard on `http://127.0.0.1:8090`, including which model instance is
+   currently active. Plain HTTP, loopback-only, no auth — by design.
 
 5. **nginx on :8443** — second TLS reverse proxy, on a non-standard port so
    it can coexist with the open-webui proxy on :443. Forwards
@@ -142,7 +147,7 @@ By default kept in **/etc/strata-monitor/config.json**.
 
 | key                | default                     | meaning                                              |
 |--------------------|-----------------------------|------------------------------------------------------|
-| `unit`             | `strata.service`            | systemd unit followed for engine lifecycle           |
+| `unit`             | `strata@.service`           | systemd unit followed for engine lifecycle; a template (`name@.service`) follows every instance and reports the active model |
 | `bind` / `port`    | `127.0.0.1` / `8090`        | HTTP listen address (loopback by default)            |
 | `log_file`         | `null`                      | null = live journal; a path = replay that file       |
 | `file_position`    | `end`                       | replay start: `end` or `start`                       |

@@ -15,12 +15,12 @@ import socket
 import sys
 import threading
 
-from collector import Collector, EventPump, State
+from collector import Collector, EventPump, State, _journal_pattern
 from server import make_server
 from store import Store
 
 DEFAULTS = {
-    "unit": "strata.service",
+    "unit": "strata@.service",
     "bind": "127.0.0.1",
     "port": 8090,
     "log_file": None,
@@ -111,7 +111,7 @@ def main(argv=None):
     collector.start()
     logging.info("strata monitor on http://%s:%s/  (source: %s)",
                  cfg["bind"], cfg["port"],
-                 cfg["log_file"] or "journal:" + cfg["unit"])
+                 cfg["log_file"] or "journal:" + _journal_pattern(cfg["unit"]))
     try:
         httpd.serve_forever(poll_interval=0.5)
     finally:

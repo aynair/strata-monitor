@@ -492,8 +492,9 @@ function renderState(s) {
     $("lr-sub").textContent = "no completed request yet";
   }
 
-  $("src").textContent = `source ${s.source} · ${fmtInt(s.samples)} samples · ` +
-    `retention ${s.history_retention_days} d`;
+  $("src").textContent = `source ${s.source}` +
+    (s.active_unit ? ` · unit ${s.active_unit}` : "") +
+    ` · ${fmtInt(s.samples)} samples · retention ${s.history_retention_days} d`;
   $("updated").textContent = "updated " + hhmmss(s.now);
 }
 

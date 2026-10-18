@@ -19,6 +19,15 @@ log = logging.getLogger("collector")
 ACTIVE_STAGES = {"prefill", "thinking", "answering", "tool_call"}
 
 
+def _journal_pattern(unit):
+    """journalctl -u accepts globs: the template 'strata@.service' becomes
+    'strata@*.service' so every model instance is followed."""
+    if "@." in unit:
+        base, _, suffix = unit.partition("@.")
+        return "%s@*.%s" % (base, suffix)
+    return unit
+
+
 class State:
     """Thread-safe current-state snapshot shared by collector, sampler and API."""
 
@@ -55,6 +64,7 @@ class State:
             "last_request": None,
             "source": "journal",
             "model": None,
+            "active_unit": None,
             "server_url": None,
         }
 
@@ -104,8 +114,22 @@ class EventPump:
         return ts if new_stage != self.state.d.get("stage") \
             else self.state.d.get("stage_since")
 
+    def _track_model(self, ev):
+        """Keep state.model in sync with the instance a line came from."""
+        m = ev.get("model")
+        if not m:
+            return
+        au, eu = self.state.d.get("active_unit"), ev.get("unit")
+        if au and eu and eu != au:
+            return  # tail lines of an instance that already gave way
+        if m != self.state.d.get("model"):
+            self.state.update(model=m)
+            self.store.set_meta("model", m)
+
     def handle(self, ev):
         k = ev.get("kind")
+        if k != "systemd":
+            self._track_model(ev)
         if k == "prefill":
             self.state.update(
                 stage="prefill", stage_since=self._since("prefill", ev["ts"]),
@@ -190,21 +214,33 @@ class EventPump:
 
     def _systemd(self, ev):
         a, ts = ev["action"], ev["ts"]
+        au, eu = self.state.d.get("active_unit"), ev.get("unit")
         if a == "started":
-            self.state.update(engine="running", stage="starting",
+            self.state.update(active_unit=eu, engine="running",
+                              stage="starting",
                               stage_since=self._since("starting", ts),
                               tok_s=0.0, tool=None,
                               gen=None, prompt=None, context=None,
                               budget=None, elapsed=None, started_ts=None,
                               last_line_ts=ts)
+            m = ev.get("model")
+            if m and m != self.state.d.get("model"):
+                self.state.update(model=m)
+                self.store.set_meta("model", m)
             return "starting"
         if a in ("stopped", "stopping"):
-            self.state.update(engine="stopped", stage="stopped",
+            if au and eu and eu != au:
+                return None  # old instance stopped after a new one took over
+            self.state.update(active_unit=None, engine="stopped",
+                              stage="stopped",
                               stage_since=self._since("stopped", ts),
                               tok_s=0.0, last_line_ts=ts)
             return "stopped"
         if a == "failed":
-            self.state.update(engine="failed", stage="stopped",
+            if au and eu and eu != au:
+                return None
+            self.state.update(active_unit=None, engine="failed",
+                              stage="stopped",
                               stage_since=self._since("stopped", ts),
                               tok_s=0.0, last_line_ts=ts)
             return "stopped"
@@ -254,7 +290,7 @@ class Collector:
             self.state.update(source="file:" + log_file)
             self._read_file(log_file)
         else:
-            unit = self.cfg.get("unit", "strata.service")
+            unit = _journal_pattern(self.cfg.get("unit", "strata.service"))
             self.state.update(source="journal:" + unit)
             self._read_journal()
 
@@ -284,7 +320,7 @@ class Collector:
             time.sleep(1)
 
     def _read_journal(self):
-        unit = self.cfg.get("unit", "strata.service")
+        unit = _journal_pattern(self.cfg.get("unit", "strata.service"))
         if not shutil.which("journalctl"):
             log.error("journalctl not found and no log_file configured")
             while not self._stop.is_set():
@@ -326,9 +362,13 @@ class Collector:
                 p.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 p.kill()
+                p.wait()
         if err and "Hint:" not in err:
             log.warning("journalctl: %s", err.strip()[:300])
-        return True
+        # a globbed -u pattern that matches no unit in the journal yet makes
+        # journalctl exit non-zero; report it so the caller backs off instead
+        # of respawning it in a tight loop
+        return p.returncode == 0
 
     def _emit(self, line):
         line = line.rstrip("\n")
@@ -411,17 +451,20 @@ class Collector:
         if now < self._pid_cache["until"]:
             return self._pid_cache["pids"]
         pids = []
-        unit = self.cfg.get("unit", "strata.service")
-        try:
-            r = subprocess.run(["systemctl", "show", "-p", "MainPID",
-                                "--value", unit],
-                               capture_output=True, text=True, timeout=5)
-            if r.returncode == 0:
-                pid = int(r.stdout.strip() or 0)
-                if pid > 1 and psutil.pid_exists(pid):
-                    pids.append(pid)
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            pass
+        unit = self.state.d.get("active_unit")
+        if not unit and "@." not in self.cfg.get("unit", "strata.service"):
+            unit = self.cfg.get("unit", "strata.service")
+        if unit:
+            try:
+                r = subprocess.run(["systemctl", "show", "-p", "MainPID",
+                                    "--value", unit],
+                                   capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    pid = int(r.stdout.strip() or 0)
+                    if pid > 1 and psutil.pid_exists(pid):
+                        pids.append(pid)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                pass
         if not pids:
             me = os.getpid()
             for p in psutil.process_iter(["pid", "cmdline"]):
