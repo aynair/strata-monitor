@@ -99,7 +99,7 @@ sudo ./install.sh          # installs python3-psutil if missing, installs the
 
 Dashboard: `https://<host>/` through nginx (the monitor itself listens on
 `http://127.0.0.1:8090/` and is not reachable from the network)
-Config: `/etc/strata-monitor/config.json` (restart the unit after editing)
+Config: `/opt/strata-monitor/config.json` (restart the unit after editing)
 Logs: `journalctl -u strata-monitor -f`
 
 Upgrade: re-run `sudo ./install.sh` from the new checkout — it updates the
@@ -109,15 +109,15 @@ customized are kept (the previous config is saved as `config.json.bak`).
 ## Uninstall (root)
 
 `uninstall.sh` reverses `install.sh`: it stops and disables the unit, removes
-the systemd unit (+ any drop-ins), and deletes `/opt/strata-monitor` and
-`/etc/strata-monitor`. The SQLite data in `/var/lib/strata-monitor/` is **kept**
-by default.
+the systemd unit (+ any drop-ins), and deletes `/opt/strata-monitor` (config
+included) plus the legacy `/etc/strata-monitor`. The SQLite data in
+`/var/lib/strata-monitor/` is **kept** by default.
 
 ```sh
 sudo ./uninstall.sh              # stop+disable, remove app + config, keep data
 sudo ./uninstall.sh --dry-run    # preview what would be removed
 sudo ./uninstall.sh --purge      # also delete /var/lib/strata-monitor (history)
-sudo ./uninstall.sh --keep-config   # leave /etc/strata-monitor in place
+sudo ./uninstall.sh --keep-config   # save config.json to /var/lib/strata-monitor/config.json.saved
 sudo ./uninstall.sh --purge-deps    # also remove python3-psutil
 ```
 
@@ -147,7 +147,9 @@ sudo ufw delete allow 8443/tcp        # whichever port you opened
 
 ## Config
 
-By default kept in **/etc/strata-monitor/config.json**.
+Kept in **/opt/strata-monitor/config.json** — the install root, the same file
+the checkout ships; `install.sh` migrates it (and picks it up from the old
+`/etc/strata-monitor/` location) on upgrade.
 
 | key                | default                     | meaning                                              |
 |--------------------|-----------------------------|------------------------------------------------------|
@@ -171,7 +173,7 @@ By default kept in **/etc/strata-monitor/config.json**.
 
 The monitor is plain HTTP bound to `127.0.0.1`, so it is only reachable through
 a reverse proxy. Two ready-made nginx templates ship in `deploy/` (also copied
-to `/etc/strata-monitor/` by `install.sh`). Cert paths are placeholders — edit
+to `/opt/strata-monitor/deploy/` by `install.sh`). Cert paths are placeholders — edit
 them per host; nothing is baked into the app:
 
 - `strata-monitor.nginx.conf` — dedicated host on **443** (own `server_name`).
@@ -180,7 +182,7 @@ them per host; nothing is baked into the app:
 
 ```sh
 # pick one, e.g. the port variant:
-sudo cp /etc/strata-monitor/strata-monitor.nginx-port8443.conf /etc/nginx/sites-available/strata-monitor
+sudo cp /opt/strata-monitor/deploy/strata-monitor.nginx-port8443.conf /etc/nginx/sites-available/strata-monitor
 sudo ln -s /etc/nginx/sites-available/strata-monitor /etc/nginx/sites-enabled/
 # edit server_name + ssl_certificate / ssl_certificate_key (e.g. /etc/ssl/private/ai.key)
 sudo nginx -t && sudo systemctl reload nginx
@@ -215,7 +217,7 @@ src/
   store.py       SQLite time-series store, bucketed history, pruning
   server.py      stdlib HTTP API + static files
   static/        dashboard (index.html, style.css, app.js)
-config.json          production defaults (installed to /etc/strata-monitor/)
+config.json          production defaults (used from the install root /opt/strata-monitor/)
 deploy/              nginx HTTPS templates (443 host + 8443 port variants)
 strata-monitor.service  systemd unit (hardened, DynamicUser)
 install.sh        one-shot installer

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Uninstall the strata web monitor (reverse of install.sh).
 #   sudo ./uninstall.sh [--purge] [--purge-deps] [--keep-config] [--dry-run]
-# Default: stop+disable unit, remove app + config; KEEP /var/lib/strata-monitor.
+# Default: stop+disable unit, remove app (config.json included) and the legacy
+# /etc/strata-monitor; KEEP /var/lib/strata-monitor. --keep-config saves
+# config.json to /var/lib/strata-monitor/config.json.saved before removing it.
 set -euo pipefail
 
 APP=/opt/strata-monitor
-CONF_DIR=/etc/strata-monitor
+LEGACY_DIR=/etc/strata-monitor
 STATE_DIR=/var/lib/strata-monitor
 UNIT=strata-monitor.service
 
@@ -31,13 +33,13 @@ run rm -rf "/etc/systemd/system/$UNIT.d"
 run systemctl daemon-reload
 run systemctl reset-failed "$UNIT" 2>/dev/null || true
 
-run rm -rf "$APP"
-
-if [[ $KEEP_CONFIG -eq 1 ]]; then
-  echo "keeping $CONF_DIR"
-else
-  run rm -rf "$CONF_DIR"
+if [[ $KEEP_CONFIG -eq 1 && -f "$APP/config.json" ]]; then
+  run mkdir -p "$STATE_DIR"
+  run cp -a "$APP/config.json" "$STATE_DIR/config.json.saved"
+  echo "saved config -> $STATE_DIR/config.json.saved"
 fi
+run rm -rf "$APP"
+run rm -rf "$LEGACY_DIR"
 
 if [[ $PURGE -eq 1 ]]; then
   echo "purging data: $STATE_DIR"

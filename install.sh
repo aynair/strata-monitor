@@ -7,7 +7,7 @@ set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP=/opt/strata-monitor
-CONF_DIR=/etc/strata-monitor
+LEGACY_DIR=/etc/strata-monitor   # pre-relocated config/nginx dir, cleaned up
 UNIT=strata-monitor.service
 
 HTTPS_PORT=8443 UFW_YES=0 UFW_SKIP=0
@@ -58,16 +58,22 @@ fi
 rm -f "$APP"/*.py
 rm -rf "$APP/static" "$APP/__pycache__"
 
-install -d -m 0755 "$APP/src" "$APP/src/static" "$CONF_DIR"
+install -d -m 0755 "$APP/src" "$APP/src/static"
 install -m 0644 "$SRC"/src/*.py "$APP/src/"
 install -m 0644 "$SRC"/src/static/* "$APP/src/static/"
 chmod 0755 "$APP/src/monitor.py"
 
-if [[ -f "$CONF_DIR/config.json" ]]; then
+# config.json now lives in the install root; pick it up from the old /etc home
+if [[ -f "$LEGACY_DIR/config.json" && ! -f "$APP/config.json" ]]; then
+    cp -a "$LEGACY_DIR/config.json" "$APP/config.json"
+    echo "config migrated: $LEGACY_DIR/config.json -> $APP/config.json"
+fi
+
+if [[ -f "$APP/config.json" ]]; then
     # upgrade shipped defaults in place: a value that still equals the old
     # shipped default is not a user customization and may be replaced;
     # anything else the admin changed is kept as-is
-    python3 - "$CONF_DIR/config.json" "$SRC/config.json" <<'PY'
+    python3 - "$APP/config.json" "$SRC/config.json" <<'PY'
 import json, sys
 
 cur_path, new_path = sys.argv[1], sys.argv[2]
@@ -100,8 +106,13 @@ else:
     print("keeping existing %s (nothing to migrate)" % cur_path)
 PY
 else
-    install -m 0644 "$SRC/config.json" "$CONF_DIR/config.json"
-    echo "installed default config -> $CONF_DIR/config.json"
+    install -m 0644 "$SRC/config.json" "$APP/config.json"
+    echo "installed default config -> $APP/config.json"
+fi
+
+if [[ -d "$LEGACY_DIR" ]]; then
+    rm -rf "$LEGACY_DIR"
+    echo "removed legacy $LEGACY_DIR (config and nginx templates now live under $APP/)"
 fi
 
 # nginx reverse-proxy templates (HTTPS). Not applied automatically: copy one to
@@ -109,8 +120,9 @@ fi
 #   strata-monitor.nginx.conf          -> dedicated host on 443
 #   strata-monitor.nginx-port8443.conf -> extra site on port 8443 (no new DNS)
 if compgen -G "$SRC/deploy/*.conf" > /dev/null; then
-    install -m 0644 "$SRC"/deploy/*.conf "$CONF_DIR/"
-    echo "nginx templates -> $CONF_DIR/strata-monitor.nginx*.conf (edit cert paths)"
+    install -d -m 0755 "$APP/deploy"
+    install -m 0644 "$SRC"/deploy/*.conf "$APP/deploy/"
+    echo "nginx templates -> $APP/deploy/strata-monitor.nginx*.conf (edit cert paths)"
 fi
 
 if compgen -G "/etc/systemd/system/$UNIT.d/*.conf" > /dev/null; then
@@ -126,12 +138,12 @@ sleep 1.5
 
 echo
 systemctl --no-pager -l status "$UNIT" | sed -n '1,12p' || true
-PORT="$(python3 -c "import json;print(json.load(open('$CONF_DIR/config.json')).get('port', 8090))")"
+PORT="$(python3 -c "import json;print(json.load(open('$APP/config.json')).get('port', 8090))")"
 HOSTN="$(hostname -f 2>/dev/null || hostname)"
 echo
-echo "  dashboard:  https://${HOSTN}/   (via nginx; see $CONF_DIR/strata-monitor.nginx.conf)"
+echo "  dashboard:  https://${HOSTN}/   (via nginx; see $APP/deploy/strata-monitor.nginx.conf)"
 echo "  local only: http://127.0.0.1:${PORT}/   (the monitor binds loopback HTTP)"
-echo "  config:     $CONF_DIR/config.json   (restart: systemctl restart $UNIT)"
+echo "  config:     $APP/config.json   (restart: systemctl restart $UNIT)"
 echo "  logs:       journalctl -u $UNIT -f"
 
 echo

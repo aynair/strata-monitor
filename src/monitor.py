@@ -19,6 +19,11 @@ from collector import Collector, EventPump, State, _journal_pattern
 from server import make_server
 from store import Store
 
+# config.json lives in the install root (the dir containing src/), so a
+# checkout and an installed tree behave the same
+DEFAULT_CONFIG = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+
 DEFAULTS = {
     "unit": "strata@.service",
     "bind": "127.0.0.1",
@@ -50,7 +55,7 @@ def load_config(argv):
 
     cfg = dict(DEFAULTS)
     path = args.config or os.environ.get("STRATA_MONITOR_CONFIG",
-                                         "/etc/strata-monitor/config.json")
+                                         DEFAULT_CONFIG)
     if os.path.exists(path):
         with open(path) as f:
             cfg.update({k: v for k, v in json.load(f).items()
