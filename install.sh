@@ -64,7 +64,41 @@ install -m 0644 "$SRC"/src/static/* "$APP/src/static/"
 chmod 0755 "$APP/src/monitor.py"
 
 if [[ -f "$CONF_DIR/config.json" ]]; then
-    echo "keeping existing $CONF_DIR/config.json"
+    # upgrade shipped defaults in place: a value that still equals the old
+    # shipped default is not a user customization and may be replaced;
+    # anything else the admin changed is kept as-is
+    python3 - "$CONF_DIR/config.json" "$SRC/config.json" <<'PY'
+import json, sys
+
+cur_path, new_path = sys.argv[1], sys.argv[2]
+with open(cur_path) as f:
+    cur = json.load(f)
+with open(new_path) as f:
+    new = json.load(f)
+
+OLD_DEFAULTS = {"unit": "strata.service"}
+changed, added = [], []
+for k, v in new.items():
+    if k in cur:
+        if cur[k] == OLD_DEFAULTS.get(k) and cur[k] != v:
+            cur[k] = v
+            changed.append("%s: %s -> %s" % (k, OLD_DEFAULTS[k], v))
+    else:
+        cur[k] = v
+        added.append(k)
+if changed or added:
+    import shutil
+    shutil.copy2(cur_path, cur_path + ".bak")
+    with open(cur_path, "w") as f:
+        json.dump(cur, f, indent=2)
+        f.write("\n")
+    for c in changed:
+        print("config migrated: %s (backup: %s.bak)" % (c, cur_path))
+    for a in added:
+        print("config added key: %s" % a)
+else:
+    print("keeping existing %s (nothing to migrate)" % cur_path)
+PY
 else
     install -m 0644 "$SRC/config.json" "$CONF_DIR/config.json"
     echo "installed default config -> $CONF_DIR/config.json"
@@ -79,6 +113,11 @@ if compgen -G "$SRC/deploy/*.conf" > /dev/null; then
     echo "nginx templates -> $CONF_DIR/strata-monitor.nginx*.conf (edit cert paths)"
 fi
 
+if compgen -G "/etc/systemd/system/$UNIT.d/*.conf" > /dev/null; then
+    echo "note: drop-ins in /etc/systemd/system/$UNIT.d/ override the shipped"
+    echo "      unit file (e.g. ExecStart); the shipped file IS reinstalled:"
+    ls -1 "/etc/systemd/system/$UNIT.d/" | sed 's/^/        /'
+fi
 install -m 0644 "$SRC/$UNIT" "/etc/systemd/system/$UNIT"
 systemctl daemon-reload
 systemctl enable "$UNIT"

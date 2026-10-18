@@ -102,6 +102,10 @@ Dashboard: `https://<host>/` through nginx (the monitor itself listens on
 Config: `/etc/strata-monitor/config.json` (restart the unit after editing)
 Logs: `journalctl -u strata-monitor -f`
 
+Upgrade: re-run `sudo ./install.sh` from the new checkout — it updates the
+code, the systemd unit file and the config defaults in place; values you
+customized are kept (the previous config is saved as `config.json.bak`).
+
 ## Uninstall (root)
 
 `uninstall.sh` reverses `install.sh`: it stops and disables the unit, removes
