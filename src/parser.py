@@ -20,8 +20,10 @@ PROMPT_RE = re.compile(
     r"^reading the prompt:\s+(?P<read>[\d,]+)\s+of\s+(?P<total>[\d,]+) tokens"
     r"(?:,\s+(?P<sec>\d+)\s+s so far)?")
 GEN_RE = re.compile(
-    r"^(?P<stage>thinking|answering):\s+(?P<n>[\d,]+) of max (?P<max>[\d,]+) tokens,"
-    r" (?P<toks>[\d.]+) tok/s, (?P<sec>\d+) s")
+    r"^(?P<stage>thinking|answering):\s+(?P<n>[\d,]+) of"
+    r"(?: budget (?P<budget>[\d,]+) \(max (?P<hard_max>[\d,]+)\)"
+    r"| max (?P<max>[\d,]+))"
+    r" tokens, (?P<toks>[\d.]+) tok/s, (?P<sec>\d+) s")
 TOOL_RE = re.compile(
     r"^writing a tool call:\s+(?P<tool>\S+):\s+(?P<n>[\d,]+) of max (?P<max>[\d,]+) tokens,"
     r" (?P<toks>[\d.]+) tok/s, (?P<sec>\d+) s")
@@ -203,7 +205,9 @@ def parse_line(line, now_ts=None, unit="strata.service"):
     m = GEN_RE.match(msg)
     if m:
         return dict(base, kind="gen", stage=m.group("stage"),
-                    n=_num(m.group("n")), max=_num(m.group("max")),
+                    n=_num(m.group("n")),
+                    max=_num(m.group("max") or m.group("hard_max")),
+                    budget=_num(m.group("budget")) if m.group("budget") else None,
                     tok_s=float(m.group("toks")), sec=int(m.group("sec")))
 
     m = TOOL_RE.match(msg)

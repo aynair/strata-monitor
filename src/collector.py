@@ -147,7 +147,7 @@ class EventPump:
             since = self._since(ev["stage"], ev["ts"])
             updates = dict(
                 stage=ev["stage"], stage_since=since, tool=ev.get("tool"),
-                gen=ev["n"], budget=ev["max"],
+                gen=ev["n"], budget=ev.get("budget") or ev["max"],
                 context=prompt + ev["n"], elapsed=ev["sec"],
                 last_line_ts=ev["ts"], engine="running")
             if reliable:
