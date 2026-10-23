@@ -1,5 +1,6 @@
 """Collects strata events from the journal (or a log file) and system metrics."""
 
+import json
 import logging
 import os
 import queue
@@ -8,6 +9,8 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 
 import psutil
 
@@ -18,6 +21,9 @@ log = logging.getLogger("collector")
 
 ACTIVE_STAGES = {"prefill", "thinking", "answering", "tool_call"}
 
+# /metrics is authoritative for the live stage/speed while its data is this fresh
+METRICS_FRESH_S = 3.0
+
 
 def _journal_pattern(unit):
     """journalctl -u accepts globs: the template 'strata@.service' becomes
@@ -26,6 +32,51 @@ def _journal_pattern(unit):
         base, _, suffix = unit.partition("@.")
         return "%s@*.%s" % (base, suffix)
     return unit
+
+
+def _num_or_none(s, cast):
+    try:
+        return cast(float(s))
+    except ValueError:
+        return None
+
+
+def parse_nvidia_smi(out):
+    """All rows of nvidia-smi's CSV output -> per-GPU dicts. The four trailing
+    fields are positional, so a name containing a comma cannot shift them."""
+    gpus = []
+    for line in out.strip().splitlines():
+        parts = [x.strip() for x in line.split(",")]
+        if len(parts) < 6:
+            continue
+        try:
+            gpu = {"index": int(parts[0]),
+                   "name": " ".join(",".join(parts[1:-4]).split()),
+                   "util": _num_or_none(parts[-4], float),
+                   "vram_used": _num_or_none(parts[-3], int),
+                   "vram_total": _num_or_none(parts[-2], int),
+                   "temp": _num_or_none(parts[-1], float)}
+        except ValueError:
+            continue
+        gpus.append(gpu)
+    return gpus
+
+
+def apply_gpus(state, gpus):
+    """Publish per-GPU readings plus the aggregate scalars the single-GPU API
+    always had: mean load, summed VRAM, hottest card, names joined."""
+    def vals(key):
+        return [g[key] for g in gpus if g.get(key) is not None]
+    util, used = vals("util"), vals("vram_used")
+    total, temps = vals("vram_total"), vals("temp")
+    names = " + ".join(g["name"] for g in gpus if g.get("name"))
+    state.update(
+        gpus=gpus,
+        gpu_name=names or None,
+        gpu_util=(sum(util) / len(util)) if util else None,
+        gpu_vram_used=sum(used) if used else None,
+        gpu_vram_total=sum(total) if total else None,
+        gpu_temp=max(temps) if temps else None)
 
 
 class State:
@@ -61,6 +112,16 @@ class State:
             "gpu_vram_total": None,
             "gpu_temp": None,
             "gpu_name": None,
+            "gpus": [],              # per-GPU live readings (multi-GPU / layer split)
+            # engine-side parallel (batch slot) state, from the /metrics poller
+            "parallel": None,        # slot count N, None = never reported
+            "slots": [],
+            "req_running": None,
+            "req_waiting": None,
+            "req_queued": None,
+            "slots_busy": None,
+            "slots_total": None,
+            "metrics_ts": None,      # last successful /metrics poll
             "last_request": None,
             "source": "journal",
             "model": None,
@@ -75,6 +136,8 @@ class State:
     def snapshot(self, stale_after_s=30.0):
         with self._lock:
             d = dict(self.d)
+            d["gpus"] = [dict(g) for g in d["gpus"]]
+            d["slots"] = [dict(s) for s in d["slots"]]
         d["stale"] = (d["stage"] in ACTIVE_STAGES
                       and d["last_line_ts"] is not None
                       and time.time() - d["last_line_ts"] > stale_after_s)
@@ -114,6 +177,16 @@ class EventPump:
         return ts if new_stage != self.state.d.get("stage") \
             else self.state.d.get("stage_since")
 
+    def _mfresh(self):
+        """True while the /metrics poller is the authoritative live source -
+        which is only the case when the engine reports batch slots. In solo
+        mode the journal lines describe the one running request, exactly as
+        the state machine expects, so nothing is gated."""
+        if not self.state.d.get("parallel"):
+            return False
+        ts = self.state.d.get("metrics_ts")
+        return ts is not None and time.time() - ts < METRICS_FRESH_S
+
     def _track_model(self, ev):
         """Keep state.model in sync with the instance a line came from."""
         m = ev.get("model")
@@ -130,6 +203,13 @@ class EventPump:
         k = ev.get("kind")
         if k != "systemd":
             self._track_model(ev)
+        if k in ("prefill", "gen", "tool_complete") and self._mfresh():
+            # /metrics owns the live picture: these per-request lines (whose
+            # sources interleave when slots run) only keep the engine alive
+            # in the eyes of staleness and backfill the history rows
+            self._journal_activity(ev)
+            self._add_activity_row(ev)
+            return
         if k == "prefill":
             self.state.update(
                 stage="prefill", stage_since=self._since("prefill", ev["ts"]),
@@ -168,16 +248,27 @@ class EventPump:
                       prompt + ev["n"])
         elif k == "done":
             prompt = self.state.d.get("prompt") or 0
-            self.state.update(
-                stage="idle", stage_since=self._since("idle", ev["ts"]),
-                tool=None, tok_s=0.0,
-                gen=ev.get("n"), context=prompt + (ev.get("n") or 0),
-                last_line_ts=ev["ts"], started_ts=None, engine="running",
-                last_request={"n": ev.get("n"), "sec": ev.get("sec"),
-                              "tok_s": ev.get("tok_s"),
-                              "reason": ev.get("reason"),
-                              "cache": ev.get("cache"),
-                              "pcie": ev.get("pcie"), "ts": ev["ts"]})
+            if self._mfresh():
+                # one of several parallel requests ended: keep its summary,
+                # leave the live aggregate to the /metrics poller
+                self.state.update(
+                    last_line_ts=ev["ts"], engine="running",
+                    last_request={"n": ev.get("n"), "sec": ev.get("sec"),
+                                  "tok_s": ev.get("tok_s"),
+                                  "reason": ev.get("reason"),
+                                  "cache": ev.get("cache"),
+                                  "pcie": ev.get("pcie"), "ts": ev["ts"]})
+            else:
+                self.state.update(
+                    stage="idle", stage_since=self._since("idle", ev["ts"]),
+                    tool=None, tok_s=0.0,
+                    gen=ev.get("n"), context=prompt + (ev.get("n") or 0),
+                    last_line_ts=ev["ts"], started_ts=None, engine="running",
+                    last_request={"n": ev.get("n"), "sec": ev.get("sec"),
+                                  "tok_s": ev.get("tok_s"),
+                                  "reason": ev.get("reason"),
+                                  "cache": ev.get("cache"),
+                                  "pcie": ev.get("pcie"), "ts": ev["ts"]})
             self._add(ev["ts"], "idle", 0.0, ev.get("n"), prompt or None,
                       prompt + (ev.get("n") or 0))
         elif k == "ready":
@@ -211,6 +302,29 @@ class EventPump:
                 self._add(ev["ts"], stage)
         elif k == "note":
             self.state.update(last_line_ts=ev["ts"])
+
+    def _journal_activity(self, ev):
+        """A live engine log line while /metrics is fresh: it proves the engine
+        is alive and feeds history rows, but must not move the live stage
+        machine - with parallel slots these lines interleave across requests."""
+        self.state.update(last_line_ts=ev["ts"], engine="running")
+
+    def _add_activity_row(self, ev):
+        """History row for a prefill/gen/tool_complete line, matching what the
+        non-fresh branches queue."""
+        k = ev.get("kind")
+        if k == "prefill":
+            self._add(ev["ts"], "prefill", None, 0, ev["total"], ev["read"])
+        elif k == "gen":
+            prompt = self.state.d.get("prompt") or 0
+            reliable = ev["n"] > 1  # n==1 tok/s is a startup artifact
+            self._add(ev["ts"], ev["stage"],
+                      ev["tok_s"] if reliable else None, ev["n"],
+                      prompt or None, prompt + ev["n"])
+        elif k == "tool_complete":
+            prompt = self.state.d.get("prompt") or 0
+            self._add(ev["ts"], "idle", 0.0, ev["n"], prompt or None,
+                      prompt + ev["n"])
 
     def _systemd(self, ev):
         a, ts = ev["action"], ev["ts"]
@@ -272,6 +386,7 @@ class Collector:
         self._gpu_ok = None
         self._prev_cpu = {"ts": None, "ct": None}
         self._pid_cache = {"pids": [], "until": 0.0}
+        self._poller = None
 
     def start(self):
         for fn, name in ((self._reader_loop, "reader"),
@@ -279,6 +394,9 @@ class Collector:
                          (self._flusher_loop, "flusher"),
                          (self._sampler_loop, "sampler")):
             threading.Thread(target=fn, name=name, daemon=True).start()
+        if self.cfg.get("metrics_poll", True):
+            self._poller = MetricsPoller(self.cfg, self.state, self._stop)
+            self._poller.start()
 
     def stop(self):
         self._stop.set()
@@ -420,7 +538,9 @@ class Collector:
             st = self.state.snapshot(stale_after)
             active = st["stage"] in ACTIVE_STAGES or (st["cpu_cores"] or 0) > 0.1
             if t0 - last_insert >= (interval if active else idle_interval):
-                self.store.insert_sample(self._row(st))
+                row = self._row(st)
+                self.store.insert_sample(row)
+                self.store.insert_gpu_samples(row["ts"], st["gpus"])
                 last_insert = t0
             if t0 - last_prune > 3600:
                 self.store.prune(retention)
@@ -436,7 +556,11 @@ class Collector:
                 "rss": st["rss"], "sys_ram_pct": st["sys_ram_pct"],
                 "sys_load": st["sys_load"], "gpu_util": st["gpu_util"],
                 "gpu_vram_used": st["gpu_vram_used"],
-                "gpu_vram_total": st["gpu_vram_total"]}
+                "gpu_vram_total": st["gpu_vram_total"],
+                "req_running": st["req_running"],
+                "req_waiting": st["req_waiting"],
+                "slots_busy": st["slots_busy"],
+                "slots_total": st["slots_total"]}
 
     def _sample(self):
         now = time.time()
@@ -518,21 +642,214 @@ class Collector:
         if not shutil.which("nvidia-smi"):
             if self._gpu_ok is not False:
                 self._gpu_ok = False
-                log.info("nvidia-smi not found; the GPU panel stays empty")
+                log.info("nvidia-smi not found; GPU readings come from the "
+                         "engine's /metrics only")
             return
         try:
             r = subprocess.run(
                 ["nvidia-smi",
-                 "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+                 "--query-gpu=index,name,utilization.gpu,memory.used,"
+                 "memory.total,temperature.gpu",
                  "--format=csv,noheader,nounits"],
                 capture_output=True, text=True, timeout=4)
-            parts = [x.strip() for x in r.stdout.strip().splitlines()[0].split(",")]
-            if r.returncode != 0 or len(parts) < 5:
+            if r.returncode != 0:
                 raise RuntimeError(r.stderr.strip()[:200] or "bad output")
-            self.state.update(gpu_name=parts[0], gpu_util=float(parts[1]),
-                              gpu_vram_used=int(parts[2]),
-                              gpu_vram_total=int(parts[3]),
-                              gpu_temp=float(parts[4]))
+            gpus = parse_nvidia_smi(r.stdout)
+            if not gpus:
+                raise RuntimeError("no GPU rows in nvidia-smi output")
+            apply_gpus(self.state, gpus)
             self._gpu_ok = True
         except Exception as e:
             log.warning("nvidia-smi failed: %s", e)
+
+
+# the engine's live.phase strings -> our stage names
+PHASE_STAGES = (("thinking", "thinking"),
+                ("answering", "answering"),
+                ("writing a tool call", "tool_call"),
+                ("tool call complete", "idle"))
+
+
+def phase_stage(phase, default="answering"):
+    p = (phase or "").lower()
+    for needle, stage in PHASE_STAGES:
+        if p.startswith(needle) or needle in p:
+            return stage
+    return default
+
+
+class MetricsPoller:
+    """Polls the strata server's own /metrics endpoint.
+
+    The engine's log lines cannot be used for the live state when it runs in
+    parallel mode ("parallel": N): the progress lines of the several requests
+    interleave with no slot id. /metrics carries the authoritative picture -
+    live.running/waiting/admitting, live.slots[] per batch slot, and each
+    card's readings in hardware (which also covers AMD cards, and a layer
+    split's several cards at once). While this data is fresh, the pump lets
+    it own the live stage machine (see EventPump._mfresh).
+    """
+
+    def __init__(self, cfg, state, stop):
+        self.cfg = cfg
+        self.state = state
+        self._stop = stop
+        self._err = None            # last failure reason; logged once
+        self._fails = 0             # consecutive failures since the last success
+        self._notified_no_url = False
+
+    def start(self):
+        threading.Thread(target=self._loop, name="metrics",
+                         daemon=True).start()
+
+    def _url(self):
+        base = self.cfg.get("metrics_url") or self.state.d.get("server_url")
+        if not base:
+            return None
+        base = str(base).rstrip("/")
+        return base if base.endswith("/metrics") else base + "/metrics"
+
+    def _cadence(self):
+        """Poll fast until the first success (so a URL learned from the ready:
+        line is picked up promptly), then on the sampler's active/idle tempo;
+        sustained failures fall back to the slow tempo so an engine without
+        /metrics is not hammered."""
+        hi = float(self.cfg.get("sample_interval_s", 1.0))
+        lo = float(self.cfg.get("idle_interval_s", 10.0))
+        if self.state.d.get("metrics_ts") is None and self._fails < 5:
+            return hi
+        return hi if self.state.d.get("stage") in ACTIVE_STAGES else lo
+
+    def _loop(self):
+        while not self._stop.is_set():
+            t0 = time.time()
+            self._poll()
+            time.sleep(max(0.2, self._cadence() - (time.time() - t0)))
+
+    def _poll(self):
+        url = self._url()
+        if url is None:
+            if not self._notified_no_url:
+                log.info("engine server URL not seen yet (ready: line or "
+                         "metrics_url); parallel state stays journal-only")
+                self._notified_no_url = True
+            return
+        req = urllib.request.Request(url)
+        key = self.cfg.get("api_key")
+        if key:
+            req.add_header("Authorization", "Bearer %s" % key)
+        try:
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            self._fails += 1
+            reason = str(getattr(e, "reason", None) or e)
+            if reason != self._err:
+                log.warning("engine /metrics failed: %s", reason)
+                self._err = reason
+            return
+        if self._err is not None:
+            log.info("engine /metrics reachable again")
+            self._err = None
+        self._fails = 0
+        try:
+            self._apply(data)
+        except Exception:
+            log.exception("engine /metrics parse failed")
+
+    # ---- parsing ------------------------------------------------------
+    @staticmethod
+    def _hardware_gpus(data):
+        """hardware.gpus[] (layer split, strata 0.1.44+) or the single-card
+        gpu_* scalars; the engine reports bytes, nvidia-smi-style state MiB."""
+        def mib(v):
+            return int(v / 1048576) if isinstance(v, (int, float)) else None
+        raw = data.get("hardware") or {}
+        static = data.get("hardware_static") or {}
+        gpus = raw.get("gpus")
+        if isinstance(gpus, list) and gpus:
+            out = []
+            for g in gpus:
+                if not isinstance(g, dict):
+                    continue
+                out.append({"index": g.get("index"),
+                            "name": g.get("name"),
+                            "util": g.get("util"),
+                            "vram_used": mib(g.get("mem_used")),
+                            "vram_total": mib(g.get("mem_total")),
+                            "temp": g.get("temp")})
+            return out
+        if raw.get("gpu_mem_total") is None and raw.get("gpu_util") is None:
+            return []
+        return [{"index": 0, "name": static.get("gpu_name") or "GPU",
+                 "util": raw.get("gpu_util"),
+                 "vram_used": mib(raw.get("gpu_mem_used")),
+                 "vram_total": mib(raw.get("gpu_mem_total")),
+                 "temp": raw.get("gpu_temp")}]
+
+    def _apply(self, data):
+        live = data.get("live") or {}
+        now = time.time()
+        par = int(live.get("parallel") or 0)
+        slots = [s for s in (live.get("slots") or []) if isinstance(s, dict)]
+        busy = [s for s in slots if s.get("state") != "idle"]
+        running = live.get("running")
+        u = {"metrics_ts": now,
+             "parallel": par or None,
+             "slots": slots,
+             "req_running": running,
+             "req_waiting": live.get("waiting"),
+             "req_queued": live.get("queued"),
+             "slots_busy": len(busy) if slots else None,
+             "slots_total": len(slots) if slots or par else None}
+
+        if par:
+            # parallel mode: with fresh /metrics data this owns the live
+            # stage machine; the journal's progress lines are per-request
+            # and interleaved, the slots are not
+            if running and (live.get("state") == "reading"
+                            or any(s.get("state") == "reading" for s in busy)):
+                stage = "prefill"
+            elif running:
+                stage = phase_stage(live.get("phase"))
+            else:
+                stage = "idle"
+            prev = self.state.d.get("stage")
+            u["stage"] = stage
+            u["stage_since"] = (now if stage != prev
+                                else self.state.d.get("stage_since"))
+            if stage == "prefill":
+                src = busy or [live]
+                prompt = max((x.get("prompt_tokens") or 0) for x in src)
+                read = max((x.get("prompt_read") or 0) for x in src)
+                u.update(prompt=prompt or None, context=read or None, gen=0,
+                         tok_s=0.0, engine="running")
+                u["elapsed"] = max((x.get("elapsed_s") or 0) for x in src)
+            elif stage in ACTIVE_STAGES:
+                src = busy or [live]
+                gen = sum((x.get("generated") or 0) for x in busy) \
+                    if busy else live.get("generated")
+                prompt = max((x.get("prompt_tokens") or 0) for x in src) \
+                    or live.get("prompt_tokens")
+                tok = sum((x.get("tok_s") or 0.0) for x in busy) if busy \
+                    else live.get("tok_s")
+                elapsed = max((x.get("elapsed_s") or 0) for x in src) \
+                    or live.get("elapsed_s")
+                phase = live.get("phase") or ""
+                tool = (phase.split(": ", 1)[1]
+                        if phase.lower().startswith("writing a tool call")
+                        and ": " in phase else None)
+                u.update(gen=gen,
+                         prompt=prompt or None,
+                         context=(prompt + gen) if prompt and gen is not None
+                         else None,
+                         tok_s=tok or None, elapsed=elapsed,
+                         started_ts=(now - elapsed) if elapsed else None,
+                         tool=tool, engine="running")
+            else:
+                u.update(tok_s=0.0, tool=None, engine="running")
+
+        gpus = self._hardware_gpus(data)
+        if gpus:
+            apply_gpus(self.state, gpus)
+        self.state.update(**u)

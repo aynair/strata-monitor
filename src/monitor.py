@@ -37,6 +37,9 @@ DEFAULTS = {
     "retention_days": 14,
     "stale_after_s": 30,
     "db": "/var/lib/strata-monitor/monitor.db",
+    "metrics_poll": True,     # poll the engine's /metrics for slot + GPU state
+    "metrics_url": None,      # null = take the URL from the journal ready: line
+    "api_key": None,          # only needed if the strata server requires keys
 }
 
 

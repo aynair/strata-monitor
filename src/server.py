@@ -100,6 +100,7 @@ class Handler(BaseHTTPRequestHandler):
         bucket = max(1, int(math.ceil(window / 600.0)))
         from_ts = int(now - window)
         data = self.server.store.get_history(from_ts, bucket)
+        data["gpus"] = self.server.store.get_gpu_history(from_ts, bucket)["gpus"]
         data.update(bucket_s=bucket, window_s=window, now=now,
                     from_ts=from_ts)
         self._send(200, data)

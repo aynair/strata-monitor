@@ -10,5 +10,8 @@
   "gpu_interval_s": 3.0,
   "retention_days": 14,
   "stale_after_s": 30,
-  "db": "/var/lib/strata-monitor/monitor.db"
+  "db": "/var/lib/strata-monitor/monitor.db",
+  "metrics_poll": true,
+  "metrics_url": null,
+  "api_key": null
 }
