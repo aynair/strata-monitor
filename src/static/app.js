@@ -443,28 +443,29 @@ const gpuLabel = (g) => {
   return nm ? `GPU ${g.index} ${nm}` : `GPU ${g.index}`;
 };
 
-/* compact per-card tiles: util, VRAM bar (the comparison cue), temp */
+/* slim per-card tiles: emphasized util, then a dim info line
+   (temp, PCIe link, VRAM); VRAM history lives in the memory plot */
 function renderGpuTiles(entries) {
   if (!entries.length) {
     $("gpu-tiles").innerHTML =
       `<div class="card gpu-tile" style="border-left:3px solid ${GPU_COLORS[0]}">` +
       `<div class="label">GPU</div>` +
-      `<div class="big"><span>–</span><span class="unit">util %</span></div>` +
-      `<div class="sub">no GPU readings</div></div>`;
+      `<div class="gline"><span class="u">–</span> util % · no GPU readings` +
+      `</div></div>`;
     return;
   }
   $("gpu-tiles").innerHTML = entries.map((g) => {
-    const pct = g.vram_total
-      ? Math.min(100, 100 * (g.vram_used || 0) / g.vram_total) : 0;
-    let sub = `VRAM ${fmt1((g.vram_used || 0) / 1024)} / ` +
-      `${fmt1((g.vram_total || 0) / 1024)} GiB`;
-    if (g.temp !== null && g.temp !== undefined) sub += ` · ${fmtInt(g.temp)} °C`;
+    const bits = [];
+    if (g.temp !== null && g.temp !== undefined) bits.push(`${fmtInt(g.temp)} °C`);
+    if (g.link_width) {
+      bits.push(`PCIe x${g.link_width}` + (g.link_gen ? ` g${g.link_gen}` : ""));
+    }
+    bits.push(`VRAM ${fmt1((g.vram_used || 0) / 1024)} / ` +
+      `${fmt1((g.vram_total || 0) / 1024)} GiB`);
     return `<div class="card gpu-tile" style="border-left:3px solid ${gpuColor(g.index)}">` +
       `<div class="label">${esc(gpuLabel(g))}</div>` +
-      `<div class="big"><span>${fmtInt(g.util)}</span><span class="unit">util %</span></div>` +
-      `<div class="bar"><div style="width:${pct.toFixed(1)}%;` +
-      `background:${gpuColor(g.index)}"></div></div>` +
-      `<div class="sub">${sub}</div></div>`;
+      `<div class="gline"><span class="u">${fmtInt(g.util)}</span> util %` +
+      ` · ${bits.join(" · ")}</div></div>`;
   }).join("");
 }
 
@@ -536,12 +537,16 @@ function renderState(s) {
   }
   $("toks-sub").textContent = sp;
 
-  // cpu
+  // cpu + system RAM (the machine stats, kept at the end of the row)
   $("cpu").textContent = fmt1(s.cpu_cores);
   $("cpu-total").textContent = `/ ${s.nproc} cores`;
   const rss = s.rss ? (s.rss / 1073741824) : 0;
-  $("cpu-sub").textContent =
-    `strata RSS ${fmt1(rss)} GiB · system RAM ${fmt1(s.sys_ram_pct)}% · load ${fmt2(s.sys_load)}`;
+  $("cpu-sub").textContent = `strata RSS ${fmt1(rss)} GiB`;
+  $("ram-pct").textContent = fmt1(s.sys_ram_pct);
+  $("ram-sub").textContent = s.sys_ram_total
+    ? `used ${fmt1(s.sys_ram_used / 1073741824)} / ` +
+      `${fmt1(s.sys_ram_total / 1073741824)} GiB · load ${fmt2(s.sys_load)}`
+    : `load ${fmt2(s.sys_load)}`;
 
   // context
   const ctxWin = s.context_window;

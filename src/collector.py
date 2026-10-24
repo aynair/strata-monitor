@@ -41,21 +41,25 @@ def _num_or_none(s, cast):
         return None
 
 
-def parse_nvidia_smi(out):
-    """All rows of nvidia-smi's CSV output -> per-GPU dicts. The four trailing
-    fields are positional, so a name containing a comma cannot shift them."""
+def parse_nvidia_smi(out, tail=4):
+    """All rows of nvidia-smi's CSV output -> per-GPU dicts. The trailing
+    `tail` fields are positional, so a name containing a comma cannot shift
+    them. tail=6 appends the negotiated PCIe link width and generation."""
     gpus = []
     for line in out.strip().splitlines():
         parts = [x.strip() for x in line.split(",")]
-        if len(parts) < 6:
+        if len(parts) < tail + 2:
             continue
         try:
             gpu = {"index": int(parts[0]),
-                   "name": " ".join(",".join(parts[1:-4]).split()),
-                   "util": _num_or_none(parts[-4], float),
-                   "vram_used": _num_or_none(parts[-3], int),
-                   "vram_total": _num_or_none(parts[-2], int),
-                   "temp": _num_or_none(parts[-1], float)}
+                   "name": " ".join(",".join(parts[1:-tail]).split()),
+                   "util": _num_or_none(parts[-tail], float),
+                   "vram_used": _num_or_none(parts[-tail + 1], int),
+                   "vram_total": _num_or_none(parts[-tail + 2], int),
+                   "temp": _num_or_none(parts[-tail + 3], float)}
+            if tail >= 6:
+                gpu["link_width"] = _num_or_none(parts[-2], int)
+                gpu["link_gen"] = _num_or_none(parts[-1], int)
         except ValueError:
             continue
         gpus.append(gpu)
@@ -64,7 +68,15 @@ def parse_nvidia_smi(out):
 
 def apply_gpus(state, gpus):
     """Publish per-GPU readings plus the aggregate scalars the single-GPU API
-    always had: mean load, summed VRAM, hottest card, names joined."""
+    always had: mean load, summed VRAM, hottest card, names joined. PCIe link
+    info is nvidia-smi-only and near-static, so re-attach it from the cache
+    onto readings that arrive without it (the engine's /metrics path)."""
+    links = state.get("gpu_links") or {}
+    for g in gpus:
+        if "link_width" not in g:
+            li = links.get(g.get("index"))
+            if li:
+                g["link_width"], g["link_gen"] = li
     def vals(key):
         return [g[key] for g in gpus if g.get(key) is not None]
     util, used = vals("util"), vals("vram_used")
@@ -105,6 +117,8 @@ class State:
             "cpu_cores": 0.0,
             "rss": 0,
             "sys_ram_pct": 0.0,
+            "sys_ram_used": None,
+            "sys_ram_total": None,
             "sys_load": 0.0,
             "nproc": os.cpu_count() or 1,
             "gpu_util": None,
@@ -113,6 +127,7 @@ class State:
             "gpu_temp": None,
             "gpu_name": None,
             "gpus": [],              # per-GPU live readings (multi-GPU / layer split)
+            "gpu_links": {},         # gpu index -> PCIe (width, gen) from nvidia-smi
             # engine-side parallel (batch slot) state, from the /metrics poller
             "parallel": None,        # slot count N, None = never reported
             "slots": [],
@@ -132,6 +147,10 @@ class State:
     def update(self, **kw):
         with self._lock:
             self.d.update(kw)
+
+    def get(self, k, default=None):
+        with self._lock:
+            return self.d.get(k, default)
 
     def snapshot(self, stale_after_s=30.0):
         with self._lock:
@@ -384,6 +403,7 @@ class Collector:
         self._stop = threading.Event()
         self._gpu_next = 0.0
         self._gpu_ok = None
+        self._pcie_ok = None   # nvidia-smi knows the PCIe link fields?
         self._prev_cpu = {"ts": None, "ct": None}
         self._pid_cache = {"pids": [], "until": 0.0}
         self._poller = None
@@ -636,7 +656,11 @@ class Collector:
             load = os.getloadavg()[0]
         except OSError:
             load = 0.0
-        self.state.update(sys_ram_pct=vm.percent, sys_load=round(load, 2))
+        self.state.update(sys_ram_pct=vm.percent, sys_ram_used=vm.used,
+                          sys_ram_total=vm.total, sys_load=round(load, 2))
+
+    GPU_Q = ("--query-gpu=index,name,utilization.gpu,memory.used,"
+             "memory.total,temperature.gpu")
 
     def _sample_gpu(self):
         if not shutil.which("nvidia-smi"):
@@ -645,18 +669,27 @@ class Collector:
                 log.info("nvidia-smi not found; GPU readings come from the "
                          "engine's /metrics only")
             return
+        pcie = self._pcie_ok is not False
+        q = self.GPU_Q + (",pcie.link.width.current,pcie.link.gen.current"
+                          if pcie else "")
         try:
-            r = subprocess.run(
-                ["nvidia-smi",
-                 "--query-gpu=index,name,utilization.gpu,memory.used,"
-                 "memory.total,temperature.gpu",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=4)
+            r = subprocess.run(["nvidia-smi", q,
+                                "--format=csv,noheader,nounits"],
+                               capture_output=True, text=True, timeout=4)
             if r.returncode != 0:
+                if pcie and "field" in (r.stderr or "").lower():
+                    self._pcie_ok = False  # too old to know the link fields
+                    log.info("this nvidia-smi has no PCIe link fields; "
+                             "dropping them")
+                    return self._sample_gpu()
                 raise RuntimeError(r.stderr.strip()[:200] or "bad output")
-            gpus = parse_nvidia_smi(r.stdout)
+            gpus = parse_nvidia_smi(r.stdout, 6 if pcie else 4)
             if not gpus:
                 raise RuntimeError("no GPU rows in nvidia-smi output")
+            lk = {g["index"]: (g["link_width"], g["link_gen"])
+                  for g in gpus if g.get("link_width") is not None}
+            if lk:
+                self.state.update(gpu_links=lk)
             apply_gpus(self.state, gpus)
             self._gpu_ok = True
         except Exception as e:

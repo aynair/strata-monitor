@@ -39,12 +39,6 @@
     </div>
 
     <div class="card">
-      <div class="label">CPU cores used</div>
-      <div class="big"><span id="cpu">0.0</span><span class="unit" id="cpu-total">/ –</span></div>
-      <div class="sub" id="cpu-sub">–</div>
-    </div>
-
-    <div class="card">
       <div class="label">context window</div>
       <div class="big"><span id="ctx-pct">–</span><span class="unit" id="ctx-frac"></span></div>
       <div class="bar"><div id="ctx-bar"></div></div>
@@ -62,6 +56,18 @@
       <div class="label">last request</div>
       <div class="big"><span id="lr-toks">–</span><span class="unit">tok/s</span></div>
       <div class="sub" id="lr-sub">–</div>
+    </div>
+
+    <div class="card">
+      <div class="label">CPU cores used</div>
+      <div class="big"><span id="cpu">0.0</span><span class="unit" id="cpu-total">/ –</span></div>
+      <div class="sub" id="cpu-sub">–</div>
+    </div>
+
+    <div class="card">
+      <div class="label">system RAM</div>
+      <div class="big"><span id="ram-pct">–</span><span class="unit">%</span></div>
+      <div class="sub" id="ram-sub">–</div>
     </div>
   </section>
 
@@ -85,16 +91,16 @@
       <h3>output speed <span class="hint">tok/s</span></h3>
       <canvas></canvas><div class="tip"></div>
     </div>
-    <div class="plot" id="p-cpu">
-      <h3>CPU cores used by strata <span class="hint">cores</span></h3>
-      <canvas></canvas><div class="tip"></div>
-    </div>
     <div class="plot" id="p-ctx">
       <h3>context window used <span class="hint">%</span></h3>
       <canvas></canvas><div class="tip"></div>
     </div>
     <div class="plot" id="p-req" hidden>
       <h3>requests <span class="hint">running · waiting</span></h3>
+      <canvas></canvas><div class="tip"></div>
+    </div>
+    <div class="plot" id="p-cpu">
+      <h3>CPU cores used by strata <span class="hint">cores</span></h3>
       <canvas></canvas><div class="tip"></div>
     </div>
     <div class="plot" id="p-ram">

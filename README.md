@@ -10,9 +10,10 @@ Point it at the `strata@*` journal and it shows you, in real time,
 - which stage the engine is in (thinking / answering / tool call / prefill), 
 - how fast it generates tokens, 
 - how full the context window is, and 
-- how your GPU(s)/CPU/RAM are holding up — a tile per GPU, plus shared-axis
-  utilization and memory charts that overlay every card in matching colors,
-  so cards are easy to compare.
+- how your GPU(s)/CPU/RAM are holding up — a slim tile per GPU (load,
+  temperature, PCIe link), plus shared-axis utilization and memory charts
+  that overlay every card in matching colors, so cards are easy to compare.
+  Engine stats come first; plain machine stats (CPU, RAM) sit at the end.
 When strata serves several users at once (`"parallel": N` batch slots), the
 monitor follows the engine's own `/metrics`: running/waiting requests and the
 state of every batch slot, live.
@@ -25,9 +26,9 @@ All on a single page with hand-rolled canvas charts (no CDN, no web framework).
 - **Engine stage** with colored background bands on the time-series
 - **Tokens/s** with rolling history
 - **Context window** usage
-- **Live CPU cores, RAM, GPU(s)** — per-card utilization, VRAM, temperature;
-  read from `nvidia-smi` and from the engine's own hardware report (covers
-  AMD cards and multi-GPU layer splits)
+- **Live CPU cores, RAM, GPU(s)** — per-card utilization, VRAM, temperature
+  and PCIe link (width × generation); read from `nvidia-smi` and from the
+  engine's own hardware report (covers AMD cards and multi-GPU layer splits)
 - **Parallel mode** (`"parallel": N` in strata's config): requests card with
   running/waiting counts, a chip per batch slot, and a concurrency plot —
   driven by the engine's `/metrics`, so interleaved requests stay attributed
@@ -247,9 +248,10 @@ docs/             screenshot used in README.md
 
 ### Multi-GPU and parallel mode
 
-Every GPU gets its own tile (load, VRAM usage bar, temperature), and the GPU
-utilization and memory charts overlay all cards on shared axes with matching
-colors, so comparing two cards is a single glance. Readings
+Every GPU gets its own slim tile (load, temperature, PCIe link width ×
+generation, VRAM as text), and the GPU utilization and memory charts overlay
+all cards on shared axes with matching colors, so comparing two cards is a
+single glance. Readings
 come from `nvidia-smi` and, when the engine is reachable, from its own
 `/metrics` hardware report — so AMD setups and multi-GPU layer splits
 (`layer split across GPUs [1, 0]`) are covered too.
