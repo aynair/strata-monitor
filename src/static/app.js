@@ -70,10 +70,10 @@ class Plot {
     this.tip = this.root.querySelector(".tip");
     this.ctx = this.canvas.getContext("2d");
     this.o = Object.assign({
-      color: "#4fd1c5", ymin: null, ymax: null, bands: true,
+      color: "#4fd1c5", color2: null, ymin: null, ymax: null, bands: true,
       fmt: (v) => fmt1(v), tipFmt: (v) => fmt1(v), unit: "",
     }, opts);
-    this.data = { ts: [], v: [], stages: [] };
+    this.data = { ts: [], v: [], v2: [], stages: [] };
     this.domain = null;
     this.gapThreshold = Infinity;
     this.hover = -1;
@@ -83,12 +83,15 @@ class Plot {
     this.canvas.addEventListener("mouseleave", () => {
       this.hover = -1; this.tip.style.display = "none"; this.draw();
     });
-    new ResizeObserver(() => this.resize()).observe(this.root);
+    this._ro = new ResizeObserver(() => this.resize());
+    this._ro.observe(this.root);
     this.resize();
   }
 
-  setData(ts, v, stages, domain) {
-    this.data = { ts: ts || [], v: v || [], stages: stages || [] };
+  destroy() { this._ro.disconnect(); this.root.remove(); }
+
+  setData(ts, v, stages, domain, v2) {
+    this.data = { ts: ts || [], v: v || [], v2: v2 || [], stages: stages || [] };
     this.domain = (domain && domain.length === 2 && domain[1] > domain[0])
       ? domain : null;
     this._gapThreshold();
@@ -121,7 +124,8 @@ class Plot {
   _range() {
     const o = this.o;
     let lo = o.ymin, hi = o.ymax;
-    const vals = this.data.v.filter((x) => x !== null && x !== undefined && isFinite(x));
+    const vals = this._series().flatMap(([v]) =>
+      v.filter((x) => x !== null && x !== undefined && isFinite(x)));
     if (!vals.length) return null;
     const dlo = Math.min(...vals);
     let dhi = Math.max(...vals);
@@ -168,14 +172,23 @@ class Plot {
     this._showTip(best, g);
   }
 
+  _series() {
+    const s = [[this.data.v, this.o.color, ""]];
+    if (this.o.color2) s.push([this.data.v2, this.o.color2, "<br>"]);
+    return s.filter(([v]) => v && v.length);
+  }
+
   _showTip(i, g) {
-    const v = this.data.v[i], st = this.data.stages[i];
+    const st = this.data.stages[i];
     const meta = STAGES[st];
-    const val = (v === null || v === undefined) ? "–"
-      : this.o.tipFmt(v) + (this.o.unit ? " " + this.o.unit : "");
+    const row = (v, fmt, sep) =>
+      sep + (v === null || v === undefined ? "–"
+        : fmt(v) + (this.o.unit ? " " + this.o.unit : ""));
     this.tip.innerHTML =
       `<span class="t">${hhmmss(this.data.ts[i])}</span><br>` +
-      `${val}` +
+      this._series().map(([v, c, sep], k) =>
+        (k === 0 ? row(v[i], this.o.tipFmt, sep)
+                 : `<span style="color:${c}">${row(v[i], this.o.tipFmt, sep)}</span>`)).join("") +
       (meta ? `<span class="s" style="color:${meta.c}">${meta.l}</span>` : "");
     this.tip.style.display = "block";
     const x = this._x(i, g);
@@ -259,35 +272,38 @@ class Plot {
     }
     ctx.textAlign = "left";
 
-    // line
-    ctx.strokeStyle = this.o.color;
+    // lines
     ctx.lineWidth = 1.6;
     ctx.lineJoin = "round";
-    ctx.beginPath();
-    let pen = false;
-    for (let i = 0; i < ts.length; i++) {
-      const v = this.data.v[i];
-      if (v === null || v === undefined || !isFinite(v)) { pen = false; continue; }
-      if (pen && i > 0 && ts[i] - ts[i - 1] > this.gapThreshold) pen = false;
-      const x = xOf(ts[i]), y = yOf(v);
-      if (!pen) { ctx.moveTo(x, y); pen = true; } else { ctx.lineTo(x, y); }
+    for (const [series, color] of this._series()) {
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      let pen = false;
+      for (let i = 0; i < ts.length; i++) {
+        const v = series[i];
+        if (v === null || v === undefined || !isFinite(v)) { pen = false; continue; }
+        if (pen && i > 0 && ts[i] - ts[i - 1] > this.gapThreshold) pen = false;
+        const x = xOf(ts[i]), y = yOf(v);
+        if (!pen) { ctx.moveTo(x, y); pen = true; } else { ctx.lineTo(x, y); }
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
 
     // hover
     if (this.hover >= 0 && this.hover < ts.length) {
-      const v = this.data.v[this.hover];
       const x = xOf(ts[this.hover]);
       ctx.strokeStyle = pal("--hover-ring", "#33415588");
       ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(x, g.y0); ctx.lineTo(x, g.y1); ctx.stroke();
       ctx.setLineDash([]);
-      if (v !== null && v !== undefined && isFinite(v)) {
-        ctx.fillStyle = this.o.color;
-        ctx.beginPath(); ctx.arc(x, yOf(v), 3.2, 0, Math.PI * 2); ctx.fill();
+      for (const [series, color] of this._series()) {
+        const hv = series[this.hover];
+        if (hv === null || hv === undefined || !isFinite(hv)) continue;
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(x, yOf(hv), 3.2, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = pal("--dotstroke", "#0b1220");
         ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(x, yOf(v), 3.2, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, yOf(hv), 3.2, 0, Math.PI * 2); ctx.stroke();
       }
     }
   }
@@ -361,13 +377,9 @@ function initPlots() {
     color: "#a78bfa", unit: "%",
     fmt: (v) => fmtInt(v), tipFmt: (v) => fmt1(v),
   });
-  plots.gpu = new Plot("p-gpu", {
-    color: "#34d399", unit: "%", ymin: 0, ymax: 100,
+  plots.req = new Plot("p-req", {
+    color: "#34d399", color2: "#fbbf24", ymin: 0,
     fmt: (v) => fmtInt(v), tipFmt: (v) => fmtInt(v),
-  });
-  plots.vram = new Plot("p-vram", {
-    color: "#fbbf24", unit: "GiB", ymin: 0,
-    fmt: (v) => fmt1(v), tipFmt: (v) => fmt2(v),
   });
   plots.ram = new Plot("p-ram", {
     color: "#f472b6", unit: "%", ymin: 0, ymax: 100,
@@ -379,6 +391,113 @@ function initPlots() {
     .filter((k) => k !== "stopped" && k !== "error")
     .map((k) => `<span><i style="background:${STAGES[k].c}"></i>${STAGES[k].l}</span>`)
     .join("");
+}
+
+/* ------------------------------------------------------------------ */
+/* GPUs: one card and one utilisation + one memory plot per card       */
+
+const GPU_COLORS = ["#34d399", "#fbbf24", "#60a5fa", "#f472b6",
+                    "#a78bfa", "#fb7185", "#4fd1c5", "#94a3b8"];
+const gpuColor = (i) => GPU_COLORS[Math.abs(Number(i) || 0) % GPU_COLORS.length];
+const shortGpuName = (n) => (n || "").replace(/^(NVIDIA|AMD|Intel)\s+/i, "")
+  .replace(/^(GeForce|Radeon)\s+/i, "").trim();
+
+const gpuCards = {};   // gpu index -> card element
+const gpuPlots = {};   // gpu index -> {util, vram} Plot instances
+const EMPTY_GPU = "-"; // placeholder card's pseudo index (Number("-") is NaN)
+
+/* live per-card readings; the scalar gpu_* fields cover single-card
+   setups and monitors that predate the gpus list */
+function gpuEntries(s) {
+  let g = s.gpus || [];
+  if (!g.length && s.gpu_util !== null && s.gpu_util !== undefined) {
+    g = [{ index: 0, name: s.gpu_name, util: s.gpu_util,
+           vram_used: s.gpu_vram_used, vram_total: s.gpu_vram_total,
+           temp: s.gpu_temp }];
+  }
+  return g.slice().sort((a, b) => (a.index || 0) - (b.index || 0));
+}
+
+function dropGone(keep, bag, kill) {
+  const alive = new Set(keep.map(Number));
+  for (const k of Object.keys(bag)) {
+    if (!alive.has(Number(k))) { kill(bag[k], k); delete bag[k]; }
+  }
+}
+
+function ensureGpuCard(idx) {
+  let c = gpuCards[idx];
+  if (!c) {
+    c = document.createElement("div");
+    c.className = "card gpu-card";
+    c.innerHTML = `<div class="label"></div>` +
+      `<div class="big"><span class="gu">–</span><span class="unit">util %</span></div>` +
+      `<div class="sub gs">–</div>`;
+    gpuCards[idx] = c;
+  }
+  $("card-lr").parentNode.insertBefore(c, $("card-lr")); // keeps card order
+  return c;
+}
+
+function renderGpuCards(entries) {
+  dropGone(entries.map((g) => g.index), gpuCards, (c) => c.remove());
+  if (!entries.length) {
+    const c = ensureGpuCard(EMPTY_GPU);
+    c.querySelector(".label").textContent = "GPU";
+    c.querySelector(".gu").textContent = "–";
+    c.querySelector(".gs").textContent = "no GPU readings";
+    c.style.borderLeft = "3px solid " + gpuColor(0);
+    return;
+  }
+  for (const g of entries) {
+    const c = ensureGpuCard(g.index);
+    const nm = shortGpuName(g.name);
+    c.querySelector(".label").textContent =
+      nm ? `GPU ${g.index} · ${nm}` : `GPU ${g.index}`;
+    c.querySelector(".gu").textContent = fmtInt(g.util);
+    let sub = `VRAM ${fmt1((g.vram_used || 0) / 1024)} / ` +
+      `${fmt1((g.vram_total || 0) / 1024)} GiB`;
+    if (g.temp !== null && g.temp !== undefined) sub += ` · ${fmtInt(g.temp)} °C`;
+    c.querySelector(".gs").textContent = sub;
+    c.style.borderLeft = `3px solid ${gpuColor(g.index)}`;
+  }
+}
+
+function ensureGpuPlots(entries) {
+  const anchor = $("p-ram");
+  dropGone(entries.map((g) => g.index), gpuPlots, (p, k) => {
+    delete plots["gpu" + k + "util"];
+    delete plots["gpu" + k + "vram"];
+    p.util.destroy();
+    p.vram.destroy();
+  });
+  for (const g of entries) {
+    let p = gpuPlots[g.index];
+    if (!p) {
+      p = {};
+      const defs = [
+        ["util", "utilization", "%", { unit: "%", ymin: 0, ymax: 100,
+          fmt: (v) => fmtInt(v), tipFmt: (v) => fmtInt(v) }],
+        ["vram", "memory", "GiB", { unit: "GiB", ymin: 0,
+          fmt: (v) => fmt1(v), tipFmt: (v) => fmt2(v) }],
+      ];
+      for (const [key, title, hint, opts] of defs) {
+        const div = document.createElement("div");
+        div.className = "plot";
+        div.id = `p-${key}-gpu${g.index}`;
+        div.innerHTML = `<h3><i style="background:${gpuColor(g.index)}"></i>` +
+          `GPU ${g.index} ${title} <span class="hint">${hint}</span></h3>` +
+          `<canvas></canvas><div class="tip"></div>`;
+        anchor.parentNode.insertBefore(div, anchor);
+        p[key] = new Plot(div.id, Object.assign({ color: gpuColor(g.index) }, opts));
+        plots["gpu" + g.index + key] = p[key];
+      }
+      gpuPlots[g.index] = p;
+    }
+    // keep plot order stable when a new card joins at any position
+    anchor.parentNode.insertBefore(p.util.root, anchor);
+    anchor.parentNode.insertBefore(p.vram.root, anchor);
+  }
 }
 
 async function fetchJSON(url) {
@@ -464,17 +583,39 @@ function renderState(s) {
   }
   $("ctx-sub").textContent = cs;
 
-  // gpu
-  if (s.gpu_util === null || s.gpu_util === undefined) {
-    $("gpu-util").textContent = "–";
-    $("gpu-sub").textContent = "nvidia-smi unavailable";
+  // gpus: one card and one pair of plots per card
+  const gents = gpuEntries(s);
+  renderGpuCards(gents);
+  ensureGpuPlots(gents);
+
+  // parallel requests + batch slots (the engine's "parallel": N mode)
+  const par = s.parallel;
+  $("card-req").hidden = !par;
+  $("p-req").hidden = !par;
+  if (par) {
+    $("req-par").textContent = "· parallel " + par;
+    const run = s.req_running || 0;
+    const busy = s.slots_busy || 0;
+    $("req-run").textContent = fmtInt(run);
+    $("req-cap").textContent = s.slots_total ? `of ${s.slots_total} slots` : "running";
+    const bits = [];
+    if (s.req_waiting) bits.push(`waiting ${s.req_waiting}`);
+    if (s.req_queued) bits.push(`queued ${s.req_queued}`);
+    if (run > busy) bits.push(`${run - busy} on the solo path (outside slots)`);
+    $("req-sub").textContent =
+      bits.length ? bits.join(" · ") : (run ? "engine busy" : "all slots idle");
+    $("slots").innerHTML = (s.slots || []).map((sl) => {
+      const st = sl.state || "idle";
+      const b = [`#${sl.slot == null ? "?" : sl.slot} ${st}`];
+      if (st === "reading" && sl.prompt_read != null)
+        b.push(`${fmtInt(sl.prompt_read)}${sl.prompt_tokens ? "/" + fmtInt(sl.prompt_tokens) : ""} tok`);
+      if (sl.generated) b.push(`${fmtInt(sl.generated)} tok`);
+      if (sl.tok_s) b.push(`${fmt1(sl.tok_s)} t/s`);
+      return `<span class="chip ${esc(st)}">${b.join(" · ")}</span>`;
+    }).join("");
   } else {
-    $("gpu-util").textContent = fmtInt(s.gpu_util);
-    let g = `VRAM ${fmt1((s.gpu_vram_used || 0) / 1024)} / ` +
-      `${fmt1((s.gpu_vram_total || 0) / 1024)} GiB`;
-    if (s.gpu_temp != null) g += ` · ${fmtInt(s.gpu_temp)} °C`;
-    if (s.gpu_name) g += ` · ${s.gpu_name}`;
-    $("gpu-sub").textContent = g;
+    $("req-par").textContent = "";
+    $("slots").innerHTML = "";
   }
 
   // last request
@@ -529,11 +670,30 @@ function renderHistory(d) {
     plots.ctx.setData(d.ts, d.context, d.stage, dom);
   }
 
-  plots.gpu.setData(d.ts, d.gpu_util, d.stage, dom);
+  // per-card GPU history; fall back to the aggregate scalars when the
+  // gpu_samples table is still empty (older data or a pre-multi-GPU build)
+  let ghist = d.gpus || [];
+  if (!ghist.length && (d.gpu_util || []).some((v) => v != null)) {
+    ghist = [{ index: 0, ts: d.ts, util: d.gpu_util,
+               vram_used: d.gpu_vram_used, vram_total: d.gpu_vram_total }];
+  }
+  for (const p of Object.values(gpuPlots)) {
+    p.util.setData(null, null, null, dom);
+    p.vram.setData(null, null, null, dom);
+    p.vram.o.ymax = null;
+  }
+  for (const g of ghist) {
+    const p = gpuPlots[g.index];
+    if (!p) continue;
+    p.util.setData(g.ts, g.util, null, dom);
+    const cap = (g.vram_total || []).find((v) => v != null);
+    p.vram.o.ymax = cap ? cap / 1024 : null;
+    p.vram.setData(g.ts, (g.vram_used || []).map((v) => (v == null ? null : v / 1024)),
+      null, dom);
+  }
 
-  const vramTotal = d.gpu_vram_total.find((v) => v != null);
-  plots.vram.o.ymax = vramTotal ? vramTotal / 1024 : null;
-  plots.vram.setData(d.ts, d.gpu_vram_used.map((v) => (v == null ? null : v / 1024)), d.stage, dom);
+  // requests: running vs waiting (parallel mode only)
+  plots.req.setData(d.ts, d.req_running, d.stage, dom, d.req_waiting);
 
   plots.ram.setData(d.ts, d.sys_ram_pct, d.stage, dom);
 }

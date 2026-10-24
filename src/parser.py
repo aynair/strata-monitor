@@ -17,8 +17,8 @@ HOST_RE = re.compile(
     r"^(?P<host>\S+)\s+(?P<prog>[^\[\s]+)(?:\[(?P<pid>\d+)\])?:\s?(?P<msg>.*)$")
 
 PROMPT_RE = re.compile(
-    r"^reading the prompt:\s+(?P<read>[\d,]+)\s+of\s+(?P<total>[\d,]+) tokens"
-    r"(?:,\s+(?P<sec>\d+)\s+s so far)?")
+    r"^reading the prompt:\s+(?P<read>[\d,]+)(?:\s+of\s+(?P<total>[\d,]+))?"
+    r"\s+tokens(?:,\s+(?P<sec>\d+)\s+s so far)?")
 GEN_RE = re.compile(
     r"^(?P<stage>thinking|answering):\s+(?P<n>[\d,]+) of"
     r"(?: budget (?P<budget>[\d,]+) \(max (?P<hard_max>[\d,]+)\)"
@@ -31,7 +31,8 @@ TOOL_DONE_RE = re.compile(
     r"^tool call complete:\s+(?P<n>[\d,]+) of max (?P<max>[\d,]+) tokens,"
     r" (?P<toks>[\d.]+) tok/s, (?P<sec>\d+) s")
 DONE_RE = re.compile(
-    r"^done:\s+(?P<n>[\d,]+) tokens in (?P<sec>\d+) s \((?P<toks>[\d.]+) tok/s\)"
+    r"^done:\s+(?P<n>[\d,]+) tokens in (?P<sec>\d+) s"
+    r" \((?:(?P<toks>[\d.]+) tok/s|no speed)\)"
     r" \((?P<reason>[^)]*)\)(?:, expert cache (?P<cache>[\d.]+)% hit"
     r" \((?P<pcie>[+-]?[\d.]+)% of the routed experts over PCIe\))?")
 READY_RE = re.compile(r"context (?P<ctx>[\d,]+) tokens")
@@ -198,8 +199,10 @@ def parse_line(line, now_ts=None, unit="strata.service"):
 
     m = PROMPT_RE.match(msg)
     if m:
-        return dict(base, kind="prefill", read=_num(m.group("read")),
-                    total=_num(m.group("total")),
+        read = _num(m.group("read"))
+        # a whole prompt that was read at once logs no "of N": read == total
+        return dict(base, kind="prefill", read=read,
+                    total=_num(m.group("total")) if m.group("total") else read,
                     sec=int(m.group("sec")) if m.group("sec") else None)
 
     m = GEN_RE.match(msg)
@@ -228,7 +231,8 @@ def parse_line(line, now_ts=None, unit="strata.service"):
             return dict(base, kind="done")
         reason = m.group("reason").split(",")[0].strip() or "unknown"
         return dict(base, kind="done", n=_num(m.group("n")),
-                    sec=int(m.group("sec")), tok_s=float(m.group("toks")),
+                    sec=int(m.group("sec")),
+                    tok_s=float(m.group("toks")) if m.group("toks") else None,
                     reason=reason,
                     cache=float(m.group("cache")) if m.group("cache") else None,
                     pcie=float(m.group("pcie")) if m.group("pcie") else None)

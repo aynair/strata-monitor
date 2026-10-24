@@ -10,7 +10,10 @@ Point it at the `strata@*` journal and it shows you, in real time,
 - which stage the engine is in (thinking / answering / tool call / prefill), 
 - how fast it generates tokens, 
 - how full the context window is, and 
-- how your GPU/CPU/RAM are holding up.
+- how your GPU(s)/CPU/RAM are holding up — one card and one pair of plots per GPU.
+When strata serves several users at once (`"parallel": N` batch slots), the
+monitor follows the engine's own `/metrics`: running/waiting requests and the
+state of every batch slot, live.
 All on a single page with hand-rolled canvas charts (no CDN, no web framework).
 
 ![strata-monitor dashboard](docs/screenshot.png)
@@ -20,7 +23,12 @@ All on a single page with hand-rolled canvas charts (no CDN, no web framework).
 - **Engine stage** with colored background bands on the time-series
 - **Tokens/s** with rolling history
 - **Context window** usage
-- **Live CPU cores, RAM, GPU** (utilization, VRAM, temperature, power)
+- **Live CPU cores, RAM, GPU(s)** — per-card utilization, VRAM, temperature;
+  read from `nvidia-smi` and from the engine's own hardware report (covers
+  AMD cards and multi-GPU layer splits)
+- **Parallel mode** (`"parallel": N` in strata's config): requests card with
+  running/waiting counts, a chip per batch slot, and a concurrency plot —
+  driven by the engine's `/metrics`, so interleaved requests stay attributed
 - **Time-series plots** (hand-rolled canvas, no external assets)
 - **Systemd journal backfill** to reconstruct history at real timestamps
 - **SQLite (WAL) storage**, 14-day retention
@@ -52,6 +60,7 @@ flowchart TB
     Nginx8443 -- "proxy_pass :8090" --> Monitor
     WebUI -- "http://127.0.0.1:8081/v1" --> Engine
     Monitor -- "journalctl + psutil + nvidia-smi" --> Engine
+    Monitor -- "GET :8081/metrics - parallel slots + GPU" --> Engine
 ```
 
 Five components, three trust zones:
@@ -76,7 +85,8 @@ Five components, three trust zones:
    `127.0.0.1:3000`. Owns the certificate and the private key.
 
 4. **strata-monitor (this project)** — reads the `strata@*` systemd journal
-   (every template instance) plus live CPU/RAM/GPU samples and renders the
+   (every template instance), the engine's `/metrics` endpoint (parallel
+   slots + GPU state) and live CPU/RAM/GPU samples, then renders the
    dashboard on `http://127.0.0.1:8090`, including which model instance is
    currently active. Plain HTTP, loopback-only, no auth — by design.
 
@@ -164,6 +174,9 @@ the checkout ships; `install.sh` migrates it (and picks it up from the old
 | `retention_days`   | `14`                        | prune samples older than this                        |
 | `stale_after_s`    | `30`                        | engine marked stale if no log line for this long     |
 | `db`               | `/var/lib/strata-monitor/monitor.db` | SQLite database                           |
+| `metrics_poll`     | `true`                      | poll the engine's `/metrics` (parallel slot state, per-GPU readings); set `false` to stay journal-only |
+| `metrics_url`      | `null`                      | null = derive from the journal `ready:` line; or give the engine's base URL (e.g. `http://127.0.0.1:8081`) |
+| `api_key`          | `null`                      | Bearer token for `/metrics`, if the strata server requires API keys |
 
 > **Don't set `bind` to `0.0.0.0`.** The monitor serves plain HTTP with no auth;
 > `0.0.0.0` exposes port 8090 to the whole network. Keep `127.0.0.1` and let the
@@ -230,8 +243,27 @@ docs/             screenshot used in README.md
 `idle`, `starting`, `prefill`, `thinking`, `answering`, `tool_call`,
 `stopped`, `error` — logged in `/api/state` and used as the plot background bands.
 
+### Multi-GPU and parallel mode
+
+Every GPU gets its own card and its own utilization + memory plots. Readings
+come from `nvidia-smi` and, when the engine is reachable, from its own
+`/metrics` hardware report — so AMD setups and multi-GPU layer splits
+(`layer split across GPUs [1, 0]`) are covered too.
+
+When strata serves concurrent users (`"parallel": N` in its config), journal
+progress lines from the several in-flight requests interleave and can no
+longer be told apart. The monitor then follows the engine's `/metrics`
+instead: a requests card (running / waiting / queued), one chip per batch
+slot (idle / reading / decoding, with its token counts), and a
+running-vs-waiting plot. With one request running, strata uses its solo path
+outside the slots — the requests card says so explicitly. The journal still
+feeds the historical request records (`done:` lines).
+
 ## API
 
-- `GET /api/state` — live snapshot (stage, tok/s, context, CPU, GPU, last request)
-- `GET /api/history?window=3600` — bucketed time series (window in seconds)
+- `GET /api/state` — live snapshot (stage, tok/s, context, CPU, per-GPU
+  readings in `gpus`, parallel counters `parallel/req_running/req_waiting/
+  req_queued` and `slots` when the engine reports them, last request)
+- `GET /api/history?window=3600` — bucketed time series (window in seconds),
+  including `req_running`/`req_waiting` and a `gpus` array of per-card series
 - `GET /api/health` — process liveness

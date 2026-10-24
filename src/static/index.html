@@ -51,13 +51,14 @@
       <div class="sub" id="ctx-sub">–</div>
     </div>
 
-    <div class="card">
-      <div class="label">GPU</div>
-      <div class="big"><span id="gpu-util">–</span><span class="unit">util %</span></div>
-      <div class="sub" id="gpu-sub">–</div>
+    <div class="card" id="card-req" hidden>
+      <div class="label">requests <span id="req-par"></span></div>
+      <div class="big"><span id="req-run">–</span><span class="unit" id="req-cap"></span></div>
+      <div class="sub" id="req-sub">–</div>
+      <div class="slots" id="slots"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="card-lr">
       <div class="label">last request</div>
       <div class="big"><span id="lr-toks">–</span><span class="unit">tok/s</span></div>
       <div class="sub" id="lr-sub">–</div>
@@ -77,12 +78,8 @@
       <h3>context window used <span class="hint">%</span></h3>
       <canvas></canvas><div class="tip"></div>
     </div>
-    <div class="plot" id="p-gpu">
-      <h3>GPU utilization <span class="hint">%</span></h3>
-      <canvas></canvas><div class="tip"></div>
-    </div>
-    <div class="plot" id="p-vram">
-      <h3>GPU memory <span class="hint">GiB</span></h3>
+    <div class="plot" id="p-req" hidden>
+      <h3>requests <span class="hint">running · waiting</span></h3>
       <canvas></canvas><div class="tip"></div>
     </div>
     <div class="plot" id="p-ram">
