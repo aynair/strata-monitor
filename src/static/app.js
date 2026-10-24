@@ -73,7 +73,8 @@ class Plot {
       color: "#4fd1c5", color2: null, ymin: null, ymax: null, bands: true,
       fmt: (v) => fmt1(v), tipFmt: (v) => fmt1(v), unit: "",
     }, opts);
-    this.data = { ts: [], v: [], v2: [], stages: [] };
+    this.data = { ts: [], stages: [] };
+    this.series = [];              // [{v, color, label}] sharing data.ts
     this.domain = null;
     this.gapThreshold = Infinity;
     this.hover = -1;
@@ -88,10 +89,22 @@ class Plot {
     this.resize();
   }
 
-  destroy() { this._ro.disconnect(); this.root.remove(); }
-
   setData(ts, v, stages, domain, v2) {
-    this.data = { ts: ts || [], v: v || [], v2: v2 || [], stages: stages || [] };
+    this.series = [{ v: v || [], color: this.o.color, label: this.o.label1 }];
+    if (this.o.color2) {
+      this.series.push({ v: v2 || [], color: this.o.color2, label: this.o.label2 });
+    }
+    this._set(ts, stages, domain);
+  }
+
+  /* several overlaid lines sharing one timeline: lines = [{v, color, label}] */
+  setLines(ts, lines, stages, domain) {
+    this.series = lines || [];
+    this._set(ts, stages, domain);
+  }
+
+  _set(ts, stages, domain) {
+    this.data = { ts: ts || [], stages: stages || [] };
     this.domain = (domain && domain.length === 2 && domain[1] > domain[0])
       ? domain : null;
     this._gapThreshold();
@@ -124,8 +137,8 @@ class Plot {
   _range() {
     const o = this.o;
     let lo = o.ymin, hi = o.ymax;
-    const vals = this._series().flatMap(([v]) =>
-      v.filter((x) => x !== null && x !== undefined && isFinite(x)));
+    const vals = this._series().flatMap((s) =>
+      s.v.filter((x) => x !== null && x !== undefined && isFinite(x)));
     if (!vals.length) return null;
     const dlo = Math.min(...vals);
     let dhi = Math.max(...vals);
@@ -173,22 +186,24 @@ class Plot {
   }
 
   _series() {
-    const s = [[this.data.v, this.o.color, ""]];
-    if (this.o.color2) s.push([this.data.v2, this.o.color2, "<br>"]);
-    return s.filter(([v]) => v && v.length);
+    return this.series.filter((s) => s.v && s.v.length);
   }
 
   _showTip(i, g) {
     const st = this.data.stages[i];
     const meta = STAGES[st];
-    const row = (v, fmt, sep) =>
-      sep + (v === null || v === undefined ? "–"
-        : fmt(v) + (this.o.unit ? " " + this.o.unit : ""));
+    const lines = this._series();
+    const multi = lines.length > 1;
+    const rows = lines.map((s) => {
+      const v = s.v[i];
+      let txt = (v === null || v === undefined) ? "–"
+        : this.o.tipFmt(v) + (this.o.unit ? " " + this.o.unit : "");
+      if (s.label) txt = `<span class="t">${esc(s.label)}</span> ${txt}`;
+      return multi ? `<span style="color:${s.color}">${txt}</span>` : txt;
+    });
     this.tip.innerHTML =
       `<span class="t">${hhmmss(this.data.ts[i])}</span><br>` +
-      this._series().map(([v, c, sep], k) =>
-        (k === 0 ? row(v[i], this.o.tipFmt, sep)
-                 : `<span style="color:${c}">${row(v[i], this.o.tipFmt, sep)}</span>`)).join("") +
+      rows.join("<br>") +
       (meta ? `<span class="s" style="color:${meta.c}">${meta.l}</span>` : "");
     this.tip.style.display = "block";
     const x = this._x(i, g);
@@ -275,12 +290,12 @@ class Plot {
     // lines
     ctx.lineWidth = 1.6;
     ctx.lineJoin = "round";
-    for (const [series, color] of this._series()) {
-      ctx.strokeStyle = color;
+    for (const s of this._series()) {
+      ctx.strokeStyle = s.color;
       ctx.beginPath();
       let pen = false;
       for (let i = 0; i < ts.length; i++) {
-        const v = series[i];
+        const v = s.v[i];
         if (v === null || v === undefined || !isFinite(v)) { pen = false; continue; }
         if (pen && i > 0 && ts[i] - ts[i - 1] > this.gapThreshold) pen = false;
         const x = xOf(ts[i]), y = yOf(v);
@@ -296,10 +311,10 @@ class Plot {
       ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(x, g.y0); ctx.lineTo(x, g.y1); ctx.stroke();
       ctx.setLineDash([]);
-      for (const [series, color] of this._series()) {
-        const hv = series[this.hover];
+      for (const s of this._series()) {
+        const hv = s.v[this.hover];
         if (hv === null || hv === undefined || !isFinite(hv)) continue;
-        ctx.fillStyle = color;
+        ctx.fillStyle = s.color;
         ctx.beginPath(); ctx.arc(x, yOf(hv), 3.2, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = pal("--dotstroke", "#0b1220");
         ctx.lineWidth = 1.5;
@@ -377,8 +392,17 @@ function initPlots() {
     color: "#a78bfa", unit: "%",
     fmt: (v) => fmtInt(v), tipFmt: (v) => fmt1(v),
   });
+  plots.gpuutil = new Plot("p-gpuutil", {
+    unit: "%", ymin: 0, ymax: 100,
+    fmt: (v) => fmtInt(v), tipFmt: (v) => fmtInt(v),
+  });
+  plots.gpumem = new Plot("p-gpumem", {
+    unit: "GiB", ymin: 0,
+    fmt: (v) => fmt1(v), tipFmt: (v) => fmt2(v),
+  });
   plots.req = new Plot("p-req", {
     color: "#34d399", color2: "#fbbf24", ymin: 0,
+    label1: "running", label2: "waiting",
     fmt: (v) => fmtInt(v), tipFmt: (v) => fmtInt(v),
   });
   plots.ram = new Plot("p-ram", {
@@ -394,17 +418,13 @@ function initPlots() {
 }
 
 /* ------------------------------------------------------------------ */
-/* GPUs: one card and one utilisation + one memory plot per card       */
+/* GPUs: a tile row plus two combined plots (all cards overlaid)       */
 
-const GPU_COLORS = ["#34d399", "#fbbf24", "#60a5fa", "#f472b6",
-                    "#a78bfa", "#fb7185", "#4fd1c5", "#94a3b8"];
+const GPU_COLORS = ["#34d399", "#fbbf24", "#60a5fa", "#f472b6", "#a78bfa",
+                    "#fb7185", "#4fd1c5", "#94a3b8", "#facc15", "#2dd4bf"];
 const gpuColor = (i) => GPU_COLORS[Math.abs(Number(i) || 0) % GPU_COLORS.length];
 const shortGpuName = (n) => (n || "").replace(/^(NVIDIA|AMD|Intel)\s+/i, "")
   .replace(/^(GeForce|Radeon)\s+/i, "").trim();
-
-const gpuCards = {};   // gpu index -> card element
-const gpuPlots = {};   // gpu index -> {util, vram} Plot instances
-const EMPTY_GPU = "-"; // placeholder card's pseudo index (Number("-") is NaN)
 
 /* live per-card readings; the scalar gpu_* fields cover single-card
    setups and monitors that predate the gpus list */
@@ -418,86 +438,43 @@ function gpuEntries(s) {
   return g.slice().sort((a, b) => (a.index || 0) - (b.index || 0));
 }
 
-function dropGone(keep, bag, kill) {
-  const alive = new Set(keep.map(Number));
-  for (const k of Object.keys(bag)) {
-    if (!alive.has(Number(k))) { kill(bag[k], k); delete bag[k]; }
-  }
-}
+const gpuLabel = (g) => {
+  const nm = shortGpuName(g.name);
+  return nm ? `GPU ${g.index} ${nm}` : `GPU ${g.index}`;
+};
 
-function ensureGpuCard(idx) {
-  let c = gpuCards[idx];
-  if (!c) {
-    c = document.createElement("div");
-    c.className = "card gpu-card";
-    c.innerHTML = `<div class="label"></div>` +
-      `<div class="big"><span class="gu">–</span><span class="unit">util %</span></div>` +
-      `<div class="sub gs">–</div>`;
-    gpuCards[idx] = c;
-  }
-  $("card-lr").parentNode.insertBefore(c, $("card-lr")); // keeps card order
-  return c;
-}
-
-function renderGpuCards(entries) {
-  dropGone(entries.map((g) => g.index), gpuCards, (c) => c.remove());
+/* compact per-card tiles: util, VRAM bar (the comparison cue), temp */
+function renderGpuTiles(entries) {
   if (!entries.length) {
-    const c = ensureGpuCard(EMPTY_GPU);
-    c.querySelector(".label").textContent = "GPU";
-    c.querySelector(".gu").textContent = "–";
-    c.querySelector(".gs").textContent = "no GPU readings";
-    c.style.borderLeft = "3px solid " + gpuColor(0);
+    $("gpu-tiles").innerHTML =
+      `<div class="card gpu-tile" style="border-left:3px solid ${GPU_COLORS[0]}">` +
+      `<div class="label">GPU</div>` +
+      `<div class="big"><span>–</span><span class="unit">util %</span></div>` +
+      `<div class="sub">no GPU readings</div></div>`;
     return;
   }
-  for (const g of entries) {
-    const c = ensureGpuCard(g.index);
-    const nm = shortGpuName(g.name);
-    c.querySelector(".label").textContent =
-      nm ? `GPU ${g.index} · ${nm}` : `GPU ${g.index}`;
-    c.querySelector(".gu").textContent = fmtInt(g.util);
+  $("gpu-tiles").innerHTML = entries.map((g) => {
+    const pct = g.vram_total
+      ? Math.min(100, 100 * (g.vram_used || 0) / g.vram_total) : 0;
     let sub = `VRAM ${fmt1((g.vram_used || 0) / 1024)} / ` +
       `${fmt1((g.vram_total || 0) / 1024)} GiB`;
     if (g.temp !== null && g.temp !== undefined) sub += ` · ${fmtInt(g.temp)} °C`;
-    c.querySelector(".gs").textContent = sub;
-    c.style.borderLeft = `3px solid ${gpuColor(g.index)}`;
-  }
+    return `<div class="card gpu-tile" style="border-left:3px solid ${gpuColor(g.index)}">` +
+      `<div class="label">${esc(gpuLabel(g))}</div>` +
+      `<div class="big"><span>${fmtInt(g.util)}</span><span class="unit">util %</span></div>` +
+      `<div class="bar"><div style="width:${pct.toFixed(1)}%;` +
+      `background:${gpuColor(g.index)}"></div></div>` +
+      `<div class="sub">${sub}</div></div>`;
+  }).join("");
 }
 
-function ensureGpuPlots(entries) {
-  const anchor = $("p-ram");
-  dropGone(entries.map((g) => g.index), gpuPlots, (p, k) => {
-    delete plots["gpu" + k + "util"];
-    delete plots["gpu" + k + "vram"];
-    p.util.destroy();
-    p.vram.destroy();
-  });
-  for (const g of entries) {
-    let p = gpuPlots[g.index];
-    if (!p) {
-      p = {};
-      const defs = [
-        ["util", "utilization", "%", { unit: "%", ymin: 0, ymax: 100,
-          fmt: (v) => fmtInt(v), tipFmt: (v) => fmtInt(v) }],
-        ["vram", "memory", "GiB", { unit: "GiB", ymin: 0,
-          fmt: (v) => fmt1(v), tipFmt: (v) => fmt2(v) }],
-      ];
-      for (const [key, title, hint, opts] of defs) {
-        const div = document.createElement("div");
-        div.className = "plot";
-        div.id = `p-${key}-gpu${g.index}`;
-        div.innerHTML = `<h3><i style="background:${gpuColor(g.index)}"></i>` +
-          `GPU ${g.index} ${title} <span class="hint">${hint}</span></h3>` +
-          `<canvas></canvas><div class="tip"></div>`;
-        anchor.parentNode.insertBefore(div, anchor);
-        p[key] = new Plot(div.id, Object.assign({ color: gpuColor(g.index) }, opts));
-        plots["gpu" + g.index + key] = p[key];
-      }
-      gpuPlots[g.index] = p;
-    }
-    // keep plot order stable when a new card joins at any position
-    anchor.parentNode.insertBefore(p.util.root, anchor);
-    anchor.parentNode.insertBefore(p.vram.root, anchor);
-  }
+/* per-card color chips in both combined plots' titles */
+function renderGpuLegend(entries) {
+  const lg = entries.map((g) =>
+    `<span class="gl"><i style="background:${gpuColor(g.index)}"></i>` +
+    `${esc(gpuLabel(g))}</span>`).join(" ");
+  $("lg-gpuutil").innerHTML = lg;
+  $("lg-gpumem").innerHTML = lg;
 }
 
 async function fetchJSON(url) {
@@ -583,10 +560,10 @@ function renderState(s) {
   }
   $("ctx-sub").textContent = cs;
 
-  // gpus: one card and one pair of plots per card
+  // gpus: tile row + legend chips; the combined plots are fed by history
   const gents = gpuEntries(s);
-  renderGpuCards(gents);
-  ensureGpuPlots(gents);
+  renderGpuTiles(gents);
+  renderGpuLegend(gents);
 
   // parallel requests + batch slots (the engine's "parallel": N mode)
   const par = s.parallel;
@@ -670,26 +647,45 @@ function renderHistory(d) {
     plots.ctx.setData(d.ts, d.context, d.stage, dom);
   }
 
-  // per-card GPU history; fall back to the aggregate scalars when the
-  // gpu_samples table is still empty (older data or a pre-multi-GPU build)
+  // per-card GPU history overlaid on two shared-axis plots; fall back to
+  // the aggregate scalars when gpu_samples is empty (older data)
   let ghist = d.gpus || [];
   if (!ghist.length && (d.gpu_util || []).some((v) => v != null)) {
     ghist = [{ index: 0, ts: d.ts, util: d.gpu_util,
                vram_used: d.gpu_vram_used, vram_total: d.gpu_vram_total }];
   }
-  for (const p of Object.values(gpuPlots)) {
-    p.util.setData(null, null, null, dom);
-    p.vram.setData(null, null, null, dom);
-    p.vram.o.ymax = null;
-  }
-  for (const g of ghist) {
-    const p = gpuPlots[g.index];
-    if (!p) continue;
-    p.util.setData(g.ts, g.util, null, dom);
-    const cap = (g.vram_total || []).find((v) => v != null);
-    p.vram.o.ymax = cap ? cap / 1024 : null;
-    p.vram.setData(g.ts, (g.vram_used || []).map((v) => (v == null ? null : v / 1024)),
-      null, dom);
+  if (!ghist.length) {
+    plots.gpuutil.setData(null, null, null, dom);
+    plots.gpumem.setData(null, null, null, dom);
+  } else {
+    // align all cards (and the engine's stage) onto one shared timeline:
+    // the union of the cards' bucket timestamps
+    const seen = new Set();
+    for (const g of ghist) for (const t of g.ts) seen.add(t);
+    const allt = Array.from(seen).sort((a, b) => a - b);
+    const stag = new Map((d.ts || []).map((t, i) => [t, d.stage[i]]));
+    const align = (g, key, conv) => {
+      const at = new Map(g.ts.map((t, i) => [t, i]));
+      return allt.map((t) => {
+        const i = at.get(t);
+        if (i === undefined) return null;
+        const v = g[key][i];
+        return v == null ? null : conv(v);
+      });
+    };
+    const lines = (key, conv) => ghist.map((g) => ({
+      v: align(g, key, conv), color: gpuColor(g.index), label: gpuLabel(g),
+    }));
+    plots.gpuutil.setLines(allt, lines("util", (x) => x),
+      allt.map((t) => (stag.has(t) ? stag.get(t) : null)), dom);
+    let cap = null;
+    for (const g of ghist) {
+      const c = (g.vram_total || []).find((v) => v != null);
+      if (c != null && (cap === null || c > cap)) cap = c;
+    }
+    plots.gpumem.o.ymax = cap ? cap / 1024 : null;
+    plots.gpumem.setLines(allt, lines("vram_used", (x) => x / 1024),
+      allt.map((t) => (stag.has(t) ? stag.get(t) : null)), dom);
   }
 
   // requests: running vs waiting (parallel mode only)

@@ -58,10 +58,25 @@
       <div class="slots" id="slots"></div>
     </div>
 
-    <div class="card" id="card-lr">
+    <div class="card">
       <div class="label">last request</div>
       <div class="big"><span id="lr-toks">–</span><span class="unit">tok/s</span></div>
       <div class="sub" id="lr-sub">–</div>
+    </div>
+  </section>
+
+  <section class="gpu-sec">
+    <div class="sec-label">GPUs</div>
+    <div class="gpu-tiles" id="gpu-tiles"></div>
+    <div class="plot-grid">
+      <div class="plot" id="p-gpuutil">
+        <h3>GPU utilization <span class="hint">%</span><span class="glegend" id="lg-gpuutil"></span></h3>
+        <canvas></canvas><div class="tip"></div>
+      </div>
+      <div class="plot" id="p-gpumem">
+        <h3>GPU memory <span class="hint">GiB</span><span class="glegend" id="lg-gpumem"></span></h3>
+        <canvas></canvas><div class="tip"></div>
+      </div>
     </div>
   </section>
 

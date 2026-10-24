@@ -10,7 +10,9 @@ Point it at the `strata@*` journal and it shows you, in real time,
 - which stage the engine is in (thinking / answering / tool call / prefill), 
 - how fast it generates tokens, 
 - how full the context window is, and 
-- how your GPU(s)/CPU/RAM are holding up — one card and one pair of plots per GPU.
+- how your GPU(s)/CPU/RAM are holding up — a tile per GPU, plus shared-axis
+  utilization and memory charts that overlay every card in matching colors,
+  so cards are easy to compare.
 When strata serves several users at once (`"parallel": N` batch slots), the
 monitor follows the engine's own `/metrics`: running/waiting requests and the
 state of every batch slot, live.
@@ -245,7 +247,9 @@ docs/             screenshot used in README.md
 
 ### Multi-GPU and parallel mode
 
-Every GPU gets its own card and its own utilization + memory plots. Readings
+Every GPU gets its own tile (load, VRAM usage bar, temperature), and the GPU
+utilization and memory charts overlay all cards on shared axes with matching
+colors, so comparing two cards is a single glance. Readings
 come from `nvidia-smi` and, when the engine is reachable, from its own
 `/metrics` hardware report — so AMD setups and multi-GPU layer splits
 (`layer split across GPUs [1, 0]`) are covered too.

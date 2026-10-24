@@ -148,7 +148,31 @@ main { padding: 14px 16px 4px; max-width: 1500px; margin: 0 auto; }
 
 .sub { font-size: 11.5px; color: var(--dim); margin-top: 7px; min-height: 15px; }
 
-.gpu-card .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gpu-tile .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.gpu-sec { margin-bottom: 14px; }
+.sec-label {
+  font: 10.5px ui-monospace, Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  color: var(--dim);
+  margin: 0 2px 8px;
+}
+.gpu-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.gpu-tile { min-height: 96px; }
+.gpu-tile .big { font-size: 22px; }
+
+.glegend { display: inline-flex; gap: 10px; flex-wrap: wrap; margin-left: 10px; }
+.glegend .gl { font-size: 10.5px; color: var(--dim); white-space: nowrap; }
+.glegend i {
+  display: inline-block; width: 9px; height: 9px;
+  border-radius: 2px; margin-right: 4px; vertical-align: -1px;
+}
 
 .slots { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
 .slots:empty { display: none; }
