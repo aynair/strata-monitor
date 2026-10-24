@@ -106,6 +106,7 @@ class State:
             "stale": False,
             "tool": None,
             "tok_s": 0.0,
+            "tok_s_eng": None,       # engine-wide output: summed decoding slots
             "gen": None,
             "budget": None,
             "prompt": None,
@@ -569,8 +570,12 @@ class Collector:
 
     def _row(self, st):
         active = st["stage"] in ACTIVE_STAGES
+        # while parallel slots decode, the engine-wide speed is the honest
+        # "output speed" even if the tracked request itself is prefilling
+        eng = st["tok_s_eng"]
         return {"ts": int(time.time()), "stage": st["stage"],
-                "tok_s": st["tok_s"] if active else 0.0,
+                "tok_s": eng if eng is not None
+                else (st["tok_s"] if active else 0.0),
                 "gen": st["gen"], "prompt": st["prompt"],
                 "context": st["context"], "cpu_cores": st["cpu_cores"],
                 "rss": st["rss"], "sys_ram_pct": st["sys_ram_pct"],
@@ -834,7 +839,10 @@ class MetricsPoller:
              "req_waiting": live.get("waiting"),
              "req_queued": live.get("queued"),
              "slots_busy": len(busy) if slots else None,
-             "slots_total": len(slots) if slots or par else None}
+             "slots_total": len(slots) if slots or par else None,
+             # engine-wide output speed: summed tok/s of decoding slots; None
+             # when nothing decodes inside slots (solo path keeps journal tok_s)
+             "tok_s_eng": sum((x.get("tok_s") or 0.0) for x in busy) or None}
 
         if par:
             # parallel mode: with fresh /metrics data this owns the live

@@ -525,13 +525,25 @@ function renderState(s) {
   $("stage-sub").textContent = sub;
 
   // speed
-  $("toks").textContent = fmt1(s.tok_s);
+  // engine-wide output speed when parallel slots decode (the tracked
+  // request may be prefilling while another slot is already generating)
+  const genSlots = (s.slots || []).filter((sl) => sl.tok_s);
+  $("toks").textContent =
+    fmt1(s.tok_s_eng != null ? s.tok_s_eng : s.tok_s);
   let sp = "idle";
   if (s.stage === "prefill") {
     sp = `reading prompt · ${dur(s.elapsed)}`;
+    if (genSlots.length) {
+      sp = `${genSlots.length} slot${genSlots.length > 1 ? "s" : ""}` +
+        ` generating · ${sp}`;
+    }
   } else if (ACTIVE.has(s.stage)) {
-    sp = `gen ${fmtInt(s.gen)} tok · ${dur(s.elapsed)}`;
-    if (s.budget) sp += ` · budget ${fmtInt(s.budget)}`;
+    if (genSlots.length > 1) {
+      sp = `${genSlots.length} slots generating`;
+    } else {
+      sp = `gen ${fmtInt(s.gen)} tok · ${dur(s.elapsed)}`;
+      if (s.budget) sp += ` · budget ${fmtInt(s.budget)}`;
+    }
   } else if (s.last_request && s.last_request.tok_s != null && s.stage === "idle") {
     sp = `last request avg ${fmt1(s.last_request.tok_s)} tok/s`;
   }

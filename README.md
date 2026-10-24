@@ -263,7 +263,10 @@ instead: a requests card (running / waiting / queued), one chip per batch
 slot (idle / reading / decoding, with its token counts), and a
 running-vs-waiting plot. With one request running, strata uses its solo path
 outside the slots — the requests card says so explicitly. The journal still
-feeds the historical request records (`done:` lines).
+feeds the historical request records (`done:` lines). While several slots
+generate at once, the output speed (tile and plot) is the engine-wide sum of
+the decoding slots — not just the speed of the one journal-tracked request,
+which may be prefilling while another slot already streams tokens.
 
 ## API
 
